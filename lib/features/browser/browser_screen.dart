@@ -167,8 +167,45 @@ class _BrowserScreenState extends State<BrowserScreen> {
             builder: (_) => TabSwitcherPage(
               manager: _tabManager,
               onNewTab: () {
-                _tabManager.addTab();
+                _tabManager.addTab(url: 'about:blank');
                 Navigator.of(context).pop();
+              },
+              onCloseSelected: (ids) {
+                if (ids.isEmpty) {
+                  // 关闭全部
+                  for (final t in _tabManager.tabs.toList()) {
+                    _tabManager.closeTab(t.id);
+                  }
+                } else {
+                  for (final id in ids) {
+                    _tabManager.closeTab(id);
+                  }
+                }
+              },
+              onBookmarkSelected: (ids) async {
+                var count = 0;
+                for (final id in ids) {
+                  final tab = _tabManager.tabs
+                      .where((t) => t.id == id)
+                      .firstOrNull;
+                  if (tab == null ||
+                      tab.url.isEmpty ||
+                      tab.url.startsWith('about:')) {
+                    continue;
+                  }
+                  final existing =
+                      await DatabaseHelper.instance.findBookmarkByUrl(tab.url);
+                  if (existing == null) {
+                    await DatabaseHelper.instance
+                        .addBookmark(tab.title, tab.url);
+                    count++;
+                  }
+                }
+                if (mounted) {
+                  _showMessage(count > 0
+                      ? '已添加 $count 个书签'
+                      : '没有可添加的书签');
+                }
               },
             ),
           ),
@@ -425,15 +462,17 @@ class _BrowserScreenState extends State<BrowserScreen> {
   }
 
   /// 截取当前激活标签的最后浏览快照（无痕模式不截图），写入磁盘持久化。
+  /// 延迟 400ms 等待页面渲染稳定（对齐 Chrome 快照时机）。
   Future<void> _refreshSnapshot() async {
     if (_incognito) return;
     final active = _tabManager.activeTab;
     if (active == null) return;
+    await Future.delayed(const Duration(milliseconds: 400));
+    final current = _tabManager.activeTab;
+    if (current == null || current.id != active.id) return;
     final shot = await NativeBridge.captureSnapshot(active.url);
     if (!mounted) return;
     if (shot == null) return;
-    final current = _tabManager.activeTab;
-    if (current == null || current.id != active.id) return;
     // 写入稳定磁盘路径（App 重启后仍可读）
     try {
       final dir = await getApplicationSupportDirectory();
