@@ -14,6 +14,7 @@ class DownloadPage extends StatefulWidget {
 
 class _DownloadPageState extends State<DownloadPage> {
   List<DownloadedFile> _files = [];
+  final TextEditingController _urlController = TextEditingController();
 
   @override
   void initState() {
@@ -26,6 +27,7 @@ class _DownloadPageState extends State<DownloadPage> {
   @override
   void dispose() {
     DownloadService.instance.version.removeListener(_onChanged);
+    _urlController.dispose();
     super.dispose();
   }
 
@@ -67,6 +69,7 @@ class _DownloadPageState extends State<DownloadPage> {
         onRefresh: _loadFiles,
         child: ListView(
           children: [
+            _buildManualAdd(),
             if (tasks.isNotEmpty) ...[
               _sectionTitle('进行中（${tasks.length}）'),
               ...tasks.map(_buildTaskTile),
@@ -89,6 +92,68 @@ class _DownloadPageState extends State<DownloadPage> {
         ),
       ),
     );
+  }
+
+  /// 手动输入链接下载（兜底：无文件后缀的下载链接 / 直接粘贴链接）。
+  Widget _buildManualAdd() {
+    return Container(
+      margin: const EdgeInsets.fromLTRB(12, 12, 12, 4),
+      padding: const EdgeInsets.fromLTRB(12, 6, 6, 6),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(12),
+      ),
+      child: Row(
+        children: [
+          Expanded(
+            child: TextField(
+              controller: _urlController,
+              keyboardType: TextInputType.url,
+              textInputAction: TextInputAction.done,
+              style: const TextStyle(fontSize: 14),
+              decoration: const InputDecoration(
+                hintText: '输入下载链接，回车开始下载',
+                hintStyle:
+                    TextStyle(fontSize: 13, color: Color(0xFFB0B7C3)),
+                isDense: true,
+                border: InputBorder.none,
+              ),
+              onSubmitted: _startManualDownload,
+            ),
+          ),
+          TextButton(
+            onPressed: () => _startManualDownload(_urlController.text),
+            child: const Text(
+              '下载',
+              style: TextStyle(fontSize: 14, color: Color(0xFF3B82F6)),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  void _startManualDownload(String url) {
+    final text = url.trim();
+    if (text.isEmpty) {
+      _showMessage('请输入下载链接');
+      return;
+    }
+    DownloadService.instance.start(text);
+    _urlController.clear();
+    _showMessage('已开始下载');
+  }
+
+  void _showMessage(String text) {
+    ScaffoldMessenger.of(context)
+      ..hideCurrentSnackBar()
+      ..showSnackBar(
+        SnackBar(
+          content: Text(text),
+          duration: const Duration(seconds: 1),
+          behavior: SnackBarBehavior.floating,
+        ),
+      );
   }
 
   Widget _sectionTitle(String title) {

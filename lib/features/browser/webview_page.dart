@@ -8,6 +8,7 @@ import '../../core/bridge/js_bridge.dart';
 import '../../core/bridge/web_injections.dart';
 import '../../core/config/app_config.dart';
 import '../../core/services/adblock_service.dart';
+import '../../core/services/download_service.dart';
 import '../../core/services/settings_service.dart';
 import '../../core/services/translate_service.dart';
 
@@ -120,6 +121,12 @@ class WebViewPageState extends State<WebViewPage> {
             debugPrint('[WebView] 资源错误 ${error.url}: ${error.description}');
           },
           onNavigationRequest: (NavigationRequest request) {
+            final url = request.url;
+            if (request.isMainFrame && _isDownloadUrl(url)) {
+              debugPrint('[WebView] 接管下载链接: $url');
+              DownloadService.instance.start(url);
+              return NavigationDecision.prevent;
+            }
             return NavigationDecision.navigate;
           },
         ),
@@ -227,6 +234,21 @@ class WebViewPageState extends State<WebViewPage> {
   }
 
   // ---- 网页翻译 ----
+
+  /// 常见下载文件后缀（大小写不敏感）。
+  static const Set<String> _downloadExtensions = {
+    'zip', 'rar', '7z', 'tar', 'gz', 'tgz', 'bz2', 'xz',
+    'apk', 'ipa', 'dmg', 'exe', 'msi', 'deb', 'pkg',
+    'pdf', 'doc', 'docx', 'xls', 'xlsx', 'ppt', 'pptx',
+    'torrent', 'iso', 'dll', 'so',
+  };
+
+  bool _isDownloadUrl(String url) {
+    final uri = Uri.tryParse(url);
+    if (uri == null) return false;
+    final path = uri.path.toLowerCase();
+    return _downloadExtensions.any(path.endsWith);
+  }
 
   /// 手动翻译当前页；若已翻译则恢复原文。返回操作类型。
   Future<String> translatePage() async {

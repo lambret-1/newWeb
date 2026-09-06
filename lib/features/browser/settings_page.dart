@@ -508,7 +508,7 @@ class _SettingsPageState extends State<SettingsPage> {
                     Icon(Icons.info_outline, size: 22, color: Color(0xFF374151)),
                 title: Text('未来浏览器', style: TextStyle(fontSize: 15)),
                 trailing: Text(
-                  '版本 1.0.4',
+                  '版本 1.0.5',
                   style: TextStyle(fontSize: 14, color: Color(0xFF9CA3AF)),
                 ),
               ),
