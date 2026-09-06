@@ -1,5 +1,7 @@
 import 'dart:async';
 import 'dart:convert';
+import 'dart:io';
+import 'dart:typed_data';
 
 import 'package:flutter/material.dart';
 import 'package:webview_flutter/webview_flutter.dart';
@@ -13,7 +15,8 @@ import '../../core/services/settings_service.dart';
 import '../../core/services/translate_service.dart';
 
 /// WebView 容器页：封装加载、进度、历史状态、JS Bridge 与功能脚本注入。
-/// 每个标签页一个实例（内部持有独立 WebViewController，随 widget 保活）。
+/// 支持 LRU 保活：active=false 时销毁 WKWebView 释放内存，显示快照占位；
+/// active=true 时重建 WebView 并恢复 URL + 滚动位置。
 class WebViewPage extends StatefulWidget {
   const WebViewPage({
     super.key,
@@ -27,6 +30,11 @@ class WebViewPage extends StatefulWidget {
     this.onTitleChanged,
     this.onOfflineCollected,
     this.onTranslateState,
+    this.active = true,
+    this.snapshotBytes,
+    this.snapshotPath,
+    this.initialScrollY = 0,
+    this.onScrollSaved,
   });
 
   final ValueChanged<double> onProgress;
@@ -39,27 +47,64 @@ class WebViewPage extends StatefulWidget {
   final ValueChanged<String>? onTitleChanged;
 
   /// 离线页面采集完成（title, url, html）。
-  final void Function(String title, String url, String html)? onOfflineCollected;
+  final void Function(String title, String url, String html)?
+      onOfflineCollected;
 
   /// 整页翻译状态（state / total / done）。
   final void Function(String state, int total, int done)? onTranslateState;
+
+  /// LRU 保活：false 时销毁 WebView 释放内存，显示快照占位。
+  final bool active;
+
+  /// 快照（内存字节），inactive 占位用。
+  final Uint8List? snapshotBytes;
+
+  /// 快照磁盘路径，inactive 占位用（内存为空时回退）。
+  final String? snapshotPath;
+
+  /// 重建 WebView 后恢复的滚动位置。
+  final double initialScrollY;
+
+  /// 离开标签前保存滚动位置回调。
+  final ValueChanged<double>? onScrollSaved;
 
   @override
   State<WebViewPage> createState() => WebViewPageState();
 }
 
 class WebViewPageState extends State<WebViewPage> {
-  late WebViewController _controller;
+  WebViewController? _controller;
   final JsBridge _bridge = JsBridge();
+  bool _restoringScroll = false;
 
   @override
   void initState() {
     super.initState();
+    if (widget.active) {
+      _createController();
+    }
+  }
 
-    // 桥接响应执行器与业务注入
+  @override
+  void didUpdateWidget(WebViewPage oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.active && !widget.active) {
+      // 进入后台：保存滚动位置 → 销毁 WebView
+      unawaited(_suspend());
+    } else if (!oldWidget.active && widget.active) {
+      // 回到前台：重建 WebView
+      _createController();
+    }
+  }
+
+  /// 创建 WebViewController 并加载页面。
+  void _createController() {
+    final controller = WebViewController();
+    _controller = controller;
+
     _bridge.responseRunner = (script) {
       unawaited(
-        _controller.runJavaScript(script).catchError((Object e) {
+        controller.runJavaScript(script).catchError((Object e) {
           debugPrint('[JsBridge] 回传失败: $e');
         }),
       );
@@ -73,9 +118,6 @@ class WebViewPageState extends State<WebViewPage> {
     _bridge.onTranslateState = (state, total, done) {
       widget.onTranslateState?.call(state, total, done);
     };
-
-    final controller = WebViewController();
-    _controller = controller;
 
     unawaited(controller.setJavaScriptMode(JavaScriptMode.unrestricted));
     unawaited(
@@ -111,6 +153,16 @@ class WebViewPageState extends State<WebViewPage> {
             if (title != null && title.isNotEmpty) {
               widget.onTitleChanged?.call(title);
             }
+            // 恢复滚动位置
+            if (widget.initialScrollY > 1 && !_restoringScroll) {
+              _restoringScroll = true;
+              unawaited(
+                controller
+                    .runJavaScript(
+                        'window.scrollTo(0, ${widget.initialScrollY});')
+                    .catchError((_) {}),
+              );
+            }
             // 自动翻译白名单检测
             unawaited(_maybeAutoTranslate(url));
           },
@@ -118,7 +170,8 @@ class WebViewPageState extends State<WebViewPage> {
             widget.onUrlChanged(change.url?.toString());
           },
           onWebResourceError: (WebResourceError error) {
-            debugPrint('[WebView] 资源错误 ${error.url}: ${error.description}');
+            debugPrint(
+                '[WebView] 资源错误 ${error.url}: ${error.description}');
           },
           onNavigationRequest: (NavigationRequest request) {
             final url = request.url;
@@ -133,7 +186,6 @@ class WebViewPageState extends State<WebViewPage> {
       ),
     );
     unawaited(controller.loadRequest(Uri.parse(widget.initialUrl)));
-    // WebView 挂载后幂等补注入内容拦截器
     unawaited(
       Future.delayed(const Duration(milliseconds: 500), () {
         return AdBlockService.instance.ensureInjected();
@@ -141,8 +193,27 @@ class WebViewPageState extends State<WebViewPage> {
     );
   }
 
+  /// 挂起：保存滚动位置后销毁 WebView。
+  Future<void> _suspend() async {
+    await _saveScrollPosition();
+    _controller = null;
+    if (mounted) setState(() {});
+  }
+
+  /// 保存当前页面滚动位置。
+  Future<void> _saveScrollPosition() async {
+    final c = _controller;
+    if (c == null) return;
+    try {
+      final pos = await c.getScrollPosition();
+      widget.onScrollSaved?.call(pos.dy);
+    } catch (_) {}
+  }
+
   /// 注入功能脚本（弹窗兜底 / 整页翻译 / 阅读器 / 离线采集）。
   void _injectFeatureScripts() {
+    final c = _controller;
+    if (c == null) return;
     final scripts = [
       WebInjections.popupGuardScript(),
       WebInjections.pageTranslateScript(),
@@ -151,7 +222,7 @@ class WebViewPageState extends State<WebViewPage> {
     ];
     for (final script in scripts) {
       unawaited(
-        _controller.runJavaScript(script).catchError((Object e) {
+        c.runJavaScript(script).catchError((Object e) {
           debugPrint('[WebView] 脚本注入失败: $e');
         }),
       );
@@ -159,8 +230,10 @@ class WebViewPageState extends State<WebViewPage> {
   }
 
   Future<void> _refreshHistoryState() async {
-    final back = await _controller.canGoBack();
-    final forward = await _controller.canGoForward();
+    final c = _controller;
+    if (c == null) return;
+    final back = await c.canGoBack();
+    final forward = await c.canGoForward();
     if (!mounted) return;
     widget.onCanGoBackChanged(back);
     widget.onCanGoForwardChanged(forward);
@@ -168,8 +241,10 @@ class WebViewPageState extends State<WebViewPage> {
 
   /// 查询页面是否在顶部（用于下拉刷新判定）。
   Future<bool> isAtTop() async {
+    final c = _controller;
+    if (c == null) return true;
     try {
-      final offset = await _controller.getScrollPosition();
+      final offset = await c.getScrollPosition();
       return offset.dy <= 1;
     } catch (_) {
       return true;
@@ -181,61 +256,69 @@ class WebViewPageState extends State<WebViewPage> {
     try {
       final uri = Uri.parse(url);
       if (uri.host.isEmpty) return;
-      final should = await SettingsService.instance.shouldAutoTranslate(uri.host);
+      final should =
+          await SettingsService.instance.shouldAutoTranslate(uri.host);
       if (!should) return;
       await translatePage();
-    } catch (_) {
-      // 忽略解析失败
-    }
+    } catch (_) {}
   }
 
   // ---- 供 BrowserScreen 调用的导航操作 ----
 
   Future<void> load(String input) async {
+    final c = _controller;
+    if (c == null) return;
     final engine = await SettingsService.instance.getSearchEngine();
     final uri = AppConfig.normalizeInput(
       input,
       searchUrl: SettingsService.searchUrlOf(engine),
     );
-    await _controller.loadRequest(uri);
+    await c.loadRequest(uri);
   }
 
   Future<void> goBack() async {
-    if (await _controller.canGoBack()) {
-      await _controller.goBack();
-    }
+    final c = _controller;
+    if (c == null) return;
+    if (await c.canGoBack()) await c.goBack();
   }
 
   Future<void> goForward() async {
-    if (await _controller.canGoForward()) {
-      await _controller.goForward();
-    }
+    final c = _controller;
+    if (c == null) return;
+    if (await c.canGoForward()) await c.goForward();
   }
 
   Future<void> reload() async {
-    await _controller.reload();
+    final c = _controller;
+    if (c == null) return;
+    await c.reload();
   }
 
   Future<void> goHome() async {
-    await _controller.loadRequest(Uri.parse(AppConfig.homeUrl));
+    final c = _controller;
+    if (c == null) return;
+    await c.loadRequest(Uri.parse(AppConfig.homeUrl));
   }
 
   /// 保存离线页面：触发页面采集（完成后经 JS Bridge 回传）。
   Future<void> saveOffline() async {
-    await _controller.runJavaScript(WebInjections.collectOfflineScript());
-    await _controller.runJavaScript(
+    final c = _controller;
+    if (c == null) return;
+    await c.runJavaScript(WebInjections.collectOfflineScript());
+    await c.runJavaScript(
       'window.__NEWWEB_COLLECT__ && window.__NEWWEB_COLLECT__();',
     );
   }
 
   /// 加载本地 HTML 文件（离线页面）。
   Future<void> loadFile(String path) async {
-    await _controller.loadFile(path);
+    final c = _controller;
+    if (c == null) return;
+    await c.loadFile(path);
   }
 
   // ---- 网页翻译 ----
 
-  /// 常见下载文件后缀（大小写不敏感）。
   static const Set<String> _downloadExtensions = {
     'zip', 'rar', '7z', 'tar', 'gz', 'tgz', 'bz2', 'xz',
     'apk', 'ipa', 'dmg', 'exe', 'msi', 'deb', 'pkg',
@@ -281,9 +364,11 @@ class WebViewPageState extends State<WebViewPage> {
 
   /// 手动翻译当前页；若已翻译则恢复原文。返回操作类型。
   Future<String> translatePage() async {
-    await _controller.runJavaScript(WebInjections.pageTranslateScript());
+    final c = _controller;
+    if (c == null) return 'noop';
+    await c.runJavaScript(WebInjections.pageTranslateScript());
     final mode = await SettingsService.instance.getTranslateMode();
-    final result = await _controller.runJavaScriptReturningResult(
+    final result = await c.runJavaScriptReturningResult(
       '''(function(){
         var pt = window.__NEWWEB_PAGE_TRANSLATE__;
         if (!pt) return 'noop';
@@ -301,8 +386,10 @@ class WebViewPageState extends State<WebViewPage> {
 
   /// 页面是否处于翻译状态。
   Future<bool> isPageTranslated() async {
+    final c = _controller;
+    if (c == null) return false;
     try {
-      final state = await _controller.runJavaScriptReturningResult(
+      final state = await c.runJavaScriptReturningResult(
         '''(function(){
           var pt = window.__NEWWEB_PAGE_TRANSLATE__;
           return pt ? pt.getState() : 'idle';
@@ -318,9 +405,11 @@ class WebViewPageState extends State<WebViewPage> {
 
   /// 提取正文，返回 {title, html, url}；提取失败返回 null。
   Future<Map<String, String>?> extractReader() async {
+    final c = _controller;
+    if (c == null) return null;
     try {
-      await _controller.runJavaScript(WebInjections.readerExtractScript());
-      final result = (await _controller.runJavaScriptReturningResult(
+      await c.runJavaScript(WebInjections.readerExtractScript());
+      final result = (await c.runJavaScriptReturningResult(
         'JSON.stringify((window.__NEWWEB_READER__ && window.__NEWWEB_READER__()) || null)',
       )) as String?;
       if (result == null || result == 'null') return null;
@@ -338,6 +427,41 @@ class WebViewPageState extends State<WebViewPage> {
 
   @override
   Widget build(BuildContext context) {
-    return WebViewWidget(controller: _controller);
+    final c = _controller;
+    if (c != null) {
+      return WebViewWidget(controller: c);
+    }
+    // inactive 占位：优先内存快照，其次磁盘快照，最后空白占位
+    if (widget.snapshotBytes != null) {
+      return Image.memory(
+        widget.snapshotBytes!,
+        fit: BoxFit.cover,
+        gaplessPlayback: true,
+      );
+    }
+    if (widget.snapshotPath != null &&
+        File(widget.snapshotPath!).existsSync()) {
+      return Image.file(
+        File(widget.snapshotPath!),
+        fit: BoxFit.cover,
+        gaplessPlayback: true,
+      );
+    }
+    return Container(
+      color: const Color(0xFFF5F6F8),
+      child: const Center(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Icon(Icons.pages_outlined, size: 48, color: Color(0xFFD1D5DB)),
+            SizedBox(height: 8),
+            Text(
+              '标签已休眠',
+              style: TextStyle(fontSize: 13, color: Color(0xFF9CA3AF)),
+            ),
+          ],
+        ),
+      ),
+    );
   }
 }

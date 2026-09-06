@@ -1,6 +1,8 @@
 import 'dart:async';
+import 'dart:io';
 
 import 'package:flutter/material.dart';
+import 'package:path_provider/path_provider.dart';
 
 import '../../core/db/database_helper.dart';
 import '../../core/services/adblock_service.dart';
@@ -422,7 +424,7 @@ class _BrowserScreenState extends State<BrowserScreen> {
     _refreshSnapshot();
   }
 
-  /// 截取当前激活标签的最后浏览快照（无痕模式不截图）。
+  /// 截取当前激活标签的最后浏览快照（无痕模式不截图），写入磁盘持久化。
   Future<void> _refreshSnapshot() async {
     if (_incognito) return;
     final active = _tabManager.activeTab;
@@ -432,8 +434,32 @@ class _BrowserScreenState extends State<BrowserScreen> {
     if (shot == null) return;
     final current = _tabManager.activeTab;
     if (current == null || current.id != active.id) return;
-    current.snapshot = shot;
-    _tabManager.notifySnapshotUpdated();
+    // 写入稳定磁盘路径（App 重启后仍可读）
+    try {
+      final dir = await getApplicationSupportDirectory();
+      final snapDir = Directory('${dir.path}/snapshots');
+      if (!snapDir.existsSync()) snapDir.createSync(recursive: true);
+      final file = File('${snapDir.path}/${active.id}.png');
+      await file.writeAsBytes(shot);
+      _tabManager.updateSnapshot(active.id, bytes: shot, diskPath: file.path);
+    } catch (_) {
+      _tabManager.updateSnapshot(active.id, bytes: shot);
+    }
+  }
+
+  /// 新建空白标签页（about:blank）。
+  void _newBlankTab() {
+    if (!_tabManager.canAddMore) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('标签数量已达上限'),
+          duration: Duration(seconds: 1),
+          behavior: SnackBarBehavior.floating,
+        ),
+      );
+      return;
+    }
+    _tabManager.addTab(url: 'about:blank');
   }
 
   @override
@@ -484,9 +510,17 @@ class _BrowserScreenState extends State<BrowserScreen> {
                     index: _tabManager.tabs.indexWhere((t) => t.id == activeId),
                     children: _tabManager.tabs.map((tab) {
                       final tabId = tab.id;
+                      final keepAlive = _tabManager.keepAliveTabIds;
                       return WebViewPage(
                         key: _keyOf(tabId),
                         initialUrl: tab.url,
+                        active: keepAlive.contains(tabId),
+                        snapshotBytes: tab.snapshot,
+                        snapshotPath: tab.snapshotPath,
+                        initialScrollY: tab.scrollY,
+                        onScrollSaved: (dy) {
+                          _tabManager.updateTab(tabId, scrollY: dy);
+                        },
                         onProgress: _onProgress,
                         onUrlChanged: (url) {
                           if (url != null) {
@@ -517,9 +551,10 @@ class _BrowserScreenState extends State<BrowserScreen> {
             canGoForward: _canGoForward,
             onBack: () => _currentWebView()?.goBack(),
             onForward: () => _currentWebView()?.goForward(),
-            onHome: () => _currentWebView()?.goHome(),
+            onNewTab: _newBlankTab,
             onTabs: _openTabSwitcher,
             onMore: _openMoreMenu,
+            tabCount: _tabManager.count,
           ),
         ],
       ),

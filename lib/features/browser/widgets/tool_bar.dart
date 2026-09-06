@@ -1,6 +1,6 @@
 import 'package:flutter/material.dart';
 
-/// 底部工具栏：后退 / 前进 / 首页 / 标签页 / 更多。
+/// 底部工具栏：后退 / 前进 / 新建标签 / 标签页（显示数量） / 更多。
 class ToolBar extends StatelessWidget {
   const ToolBar({
     super.key,
@@ -8,18 +8,20 @@ class ToolBar extends StatelessWidget {
     required this.canGoForward,
     required this.onBack,
     required this.onForward,
-    required this.onHome,
+    required this.onNewTab,
     required this.onTabs,
     required this.onMore,
+    required this.tabCount,
   });
 
   final bool canGoBack;
   final bool canGoForward;
   final VoidCallback onBack;
   final VoidCallback onForward;
-  final VoidCallback onHome;
+  final VoidCallback onNewTab;
   final VoidCallback onTabs;
   final VoidCallback onMore;
+  final int tabCount;
 
   @override
   Widget build(BuildContext context) {
@@ -51,17 +53,16 @@ class ToolBar extends StatelessWidget {
               tooltip: '前进',
             ),
             IconButton(
-              iconSize: 22,
-              onPressed: onHome,
-              icon: const Icon(Icons.home_outlined),
+              iconSize: 26,
+              onPressed: onNewTab,
+              icon: const Icon(Icons.add),
               color: enabledColor,
-              tooltip: '首页',
+              tooltip: '新建标签页',
             ),
             IconButton(
               iconSize: 22,
               onPressed: onTabs,
-              icon: const Icon(Icons.tab_outlined),
-              color: enabledColor,
+              icon: _TabCountIcon(count: tabCount, color: enabledColor),
               tooltip: '标签页',
             ),
             IconButton(
@@ -73,6 +74,43 @@ class ToolBar extends StatelessWidget {
             ),
           ],
         ),
+      ),
+    );
+  }
+}
+
+/// Chrome 风格标签计数图标：圆角方框 + 居中数字。
+class _TabCountIcon extends StatelessWidget {
+  const _TabCountIcon({required this.count, required this.color});
+
+  final int count;
+  final Color color;
+
+  @override
+  Widget build(BuildContext context) {
+    return SizedBox(
+      width: 24,
+      height: 24,
+      child: Stack(
+        alignment: Alignment.center,
+        children: [
+          Container(
+            width: 22,
+            height: 22,
+            decoration: BoxDecoration(
+              borderRadius: BorderRadius.circular(5),
+              border: Border.all(color: color, width: 1.6),
+            ),
+          ),
+          Text(
+            count > 99 ? '99+' : '$count',
+            style: TextStyle(
+              fontSize: count > 9 ? 9 : 11,
+              fontWeight: FontWeight.w700,
+              color: color,
+            ),
+          ),
+        ],
       ),
     );
   }

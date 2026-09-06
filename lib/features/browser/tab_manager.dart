@@ -1,6 +1,7 @@
 
 import 'dart:async';
 import 'dart:convert';
+import 'dart:io';
 
 import 'package:flutter/foundation.dart';
 import 'package:shared_preferences/shared_preferences.dart';
@@ -14,13 +15,25 @@ class BrowserTab {
   String title = '新标签页';
   bool isLoading = false;
 
-  /// 最后浏览快照（PNG 字节），标签切换页展示。
+  /// 最后浏览快照（PNG 字节，内存缓存），标签切换页展示。
   Uint8List? snapshot;
+
+  /// 快照磁盘文件路径（持久化，App 重启后仍可读）。
+  String? snapshotPath;
+
+  /// 页面滚动位置 Y（离开标签时保存，重建后恢复）。
+  double scrollY = 0;
+
+  /// 最近使用时间戳（LRU 排序用）。
+  int lastUsed = DateTime.now().millisecondsSinceEpoch;
 }
 
 /// 多标签管理器：维护标签列表与当前激活标签。
 class TabManager extends ChangeNotifier {
   static const int maxTabs = 8;
+
+  /// LRU 保活上限：同时最多保留 N 个 WKWebView 实例在内存。
+  static const int keepAliveCount = 6;
 
   final List<BrowserTab> _tabs = [];
   String _activeTabId = '';
@@ -39,6 +52,13 @@ class TabManager extends ChangeNotifier {
 
   bool get canAddMore => _tabs.length < maxTabs;
 
+  /// LRU：返回需要保活 WKWebView 的标签 id（最近使用的 N 个）。
+  Set<String> get keepAliveTabIds {
+    final sorted = [..._tabs]
+      ..sort((a, b) => b.lastUsed.compareTo(a.lastUsed));
+    return sorted.take(keepAliveCount).map((t) => t.id).toSet();
+  }
+
   BrowserTab addTab({String url = 'https://www.baidu.com'}) {
     final tab = BrowserTab(id: 'tab-${_nextId++}', url: url);
     _tabs.add(tab);
@@ -51,30 +71,52 @@ class TabManager extends ChangeNotifier {
   void closeTab(String id) {
     final index = _tabs.indexWhere((t) => t.id == id);
     if (index < 0) return;
+    final tab = _tabs[index];
     _tabs.removeAt(index);
+    // 删除磁盘快照
+    if (tab.snapshotPath != null) {
+      try {
+        File(tab.snapshotPath!).deleteSync();
+      } catch (_) {}
+    }
     if (_tabs.isEmpty) {
       _activeTabId = '';
     } else if (_activeTabId == id) {
       _activeTabId = _tabs[index.clamp(0, _tabs.length - 1)].id;
     }
     notifyListeners();
+    unawaited(saveSession());
   }
 
   void switchTab(String id) {
     if (_activeTabId == id) return;
     _activeTabId = id;
+    final tab = _tabs.where((t) => t.id == id).firstOrNull;
+    if (tab != null) tab.lastUsed = DateTime.now().millisecondsSinceEpoch;
     notifyListeners();
     unawaited(saveSession());
   }
 
-  void updateTab(String id, {String? url, String? title, bool? isLoading}) {
+  void updateTab(String id,
+      {String? url, String? title, bool? isLoading, double? scrollY}) {
     final tab = _tabs.where((t) => t.id == id).firstOrNull;
     if (tab == null) return;
     if (url != null) tab.url = url;
     if (title != null) tab.title = title;
     if (isLoading != null) tab.isLoading = isLoading;
+    if (scrollY != null) tab.scrollY = scrollY;
     notifyListeners();
     unawaited(saveSession());
+  }
+
+  /// 更新标签快照（内存 + 磁盘路径）。
+  void updateSnapshot(String id,
+      {Uint8List? bytes, String? diskPath}) {
+    final tab = _tabs.where((t) => t.id == id).firstOrNull;
+    if (tab == null) return;
+    if (bytes != null) tab.snapshot = bytes;
+    if (diskPath != null) tab.snapshotPath = diskPath;
+    notifyListeners();
   }
 
   /// 快照已更新（数据由调用方写入 BrowserTab.snapshot）。
@@ -93,7 +135,7 @@ class TabManager extends ChangeNotifier {
     if (!value) await clearSession();
   }
 
-  /// 保存当前标签会话（URL / 标题 / 激活项）。无痕模式下不保存。
+  /// 保存当前标签会话（URL / 标题 / 滚动位置 / 快照路径 / 激活项）。无痕模式下不保存。
   Future<void> saveSession() async {
     if (!persistSession) return;
     try {
@@ -102,7 +144,12 @@ class TabManager extends ChangeNotifier {
         _sessionKey,
         jsonEncode({
           'tabs': _tabs
-              .map((t) => {'url': t.url, 'title': t.title})
+              .map((t) => {
+                    'url': t.url,
+                    'title': t.title,
+                    'scrollY': t.scrollY,
+                    'snapshotPath': t.snapshotPath,
+                  })
               .toList(),
           'activeIndex': _tabs.indexWhere((t) => t.id == _activeTabId),
         }),
@@ -128,6 +175,11 @@ class TabManager extends ChangeNotifier {
         );
         final title = t['title'] as String?;
         if (title != null && title.isNotEmpty) tab.title = title;
+        tab.scrollY = (t['scrollY'] as num?)?.toDouble() ?? 0;
+        final snap = t['snapshotPath'] as String?;
+        if (snap != null && snap.isNotEmpty && File(snap).existsSync()) {
+          tab.snapshotPath = snap;
+        }
         _tabs.add(tab);
       }
       final activeIndex = (data['activeIndex'] as num?)?.toInt() ?? 0;
