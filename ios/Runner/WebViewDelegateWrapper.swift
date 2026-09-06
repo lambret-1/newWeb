@@ -6,7 +6,9 @@ class WebViewDelegateWrapper: NSObject, WKUIDelegate {
   weak var original: WKUIDelegate?
   var onMenuAction: ((String, [String: Any]) -> Void)?
 
-  init(original: WKUIDelegate) {
+  /// original 可为 nil（webview_flutter 可能不设置 uiDelegate），
+  /// 此时仅提供中文长按菜单，其余回调不转发。
+  init(original: WKUIDelegate?) {
     self.original = original
     super.init()
   }

@@ -49,8 +49,7 @@ class ContentBlockerManager: NSObject {
   /// 包装 WKUIDelegate：替换长按菜单为中文菜单，转发其余回调。
   private func wrapUIDelegateIfNeeded(_ webView: WKWebView) {
     if wrappedUIDelegates.contains(webView) { return }
-    guard let original = webView.uiDelegate else { return }
-    let wrapper = WebViewDelegateWrapper(original: original)
+    let wrapper = WebViewDelegateWrapper(original: webView.uiDelegate)
     wrapper.onMenuAction = onMenuAction
     webView.uiDelegate = wrapper
     wrappedUIDelegates.add(webView)

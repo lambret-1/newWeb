@@ -39,7 +39,7 @@ class JsBridge {
     register('ping', (_) async => 'pong');
     register('getAppInfo', (_) async => {
           'name': '未来浏览器',
-          'version': '1.0.6',
+          'version': '1.0.7',
           'platform': 'ios',
         });
   }

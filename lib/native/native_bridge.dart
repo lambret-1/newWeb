@@ -1,5 +1,5 @@
 import 'dart:async';
-import 'dart:convert';
+import 'dart:io';
 
 import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart';
@@ -95,14 +95,14 @@ class NativeBridge {
     await invoke('previewFile', {'path': path});
   }
 
-  /// 截取当前可见 WKWebView 快照，返回 PNG 字节；失败返回 null。
-  static Future<Uint8List?> captureVisibleWebView() async {
-    final value = await invoke('captureVisibleWebView');
+  /// 截取指定标签快照（Swift 写 PNG 文件，Dart 读文件避免大消息传输）。
+  static Future<Uint8List?> captureSnapshot(String url) async {
+    final value = await invoke('captureSnapshot', {'url': url});
     if (value is! Map) return null;
-    final png = value['png'] as String?;
-    if (png == null) return null;
+    final path = value['path'] as String?;
+    if (path == null) return null;
     try {
-      return base64Decode(png);
+      return await File(path).readAsBytes();
     } catch (_) {
       return null;
     }

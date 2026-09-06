@@ -1,8 +1,10 @@
 import 'package:flutter/material.dart';
 import 'package:share_plus/share_plus.dart';
 
+import '../../core/services/adblock_custom_service.dart';
 import '../../core/services/settings_service.dart';
 import '../../native/native_bridge.dart';
+import 'adblock_custom_page.dart';
 import 'cache_manager_page.dart';
 
 /// 设置页：搜索引擎 / 广告拦截（含豁免站点）/ 无痕 / 网页翻译 / 缓存 / DNS / 关于。
@@ -20,7 +22,6 @@ class _SettingsPageState extends State<SettingsPage> {
   bool _hasTencent = false;
   String _translateMode = 'auto';
   List<String> _autoTranslateDomains = [];
-  List<String> _whitelist = [];
 
   @override
   void initState() {
@@ -36,7 +37,6 @@ class _SettingsPageState extends State<SettingsPage> {
     final hasTencent = (await settings.getTencentSecretId()) != null;
     final mode = await settings.getTranslateMode();
     final domains = await settings.getAutoTranslateDomains();
-    final whitelist = await settings.getAdblockWhitelist();
     if (!mounted) return;
     setState(() {
       _searchEngine = engine;
@@ -45,7 +45,6 @@ class _SettingsPageState extends State<SettingsPage> {
       _hasTencent = hasTencent;
       _translateMode = mode;
       _autoTranslateDomains = domains;
-      _whitelist = whitelist;
     });
   }
 
@@ -80,6 +79,14 @@ class _SettingsPageState extends State<SettingsPage> {
     if (selected == null || selected == _searchEngine) return;
     await SettingsService.instance.setSearchEngine(selected);
     setState(() => _searchEngine = selected);
+  }
+
+  int _customRuleCount() {
+    final svc = AdblockCustomService.instance;
+    return svc.blockDomains.length +
+        svc.hiddenSelectors.length +
+        svc.whitelist.length +
+        svc.advancedRules.length;
   }
 
   Future<void> _pickTranslateMode() async {
@@ -383,24 +390,20 @@ class _SettingsPageState extends State<SettingsPage> {
             children: [
               _tile(
                 icon: Icons.rule,
-                title: '豁免站点',
+                title: '自定义规则',
                 trailing: Text(
-                  '${_whitelist.length} 个',
+                  '${_customRuleCount()}',
                   style:
                       const TextStyle(fontSize: 14, color: Color(0xFF6B7280)),
                 ),
-                onTap: () => _editDomains(
-                  title: '豁免站点',
-                  hint: '如 example.com',
-                  current: _whitelist,
-                  save: SettingsService.instance.setAdblockWhitelist,
-                ),
+                onTap: () => Navigator.of(context)
+                    .push(MaterialPageRoute(builder: (_) => const AdblockCustomPage())),
               ),
               const ListTile(
                 contentPadding:
                     EdgeInsets.symmetric(horizontal: 16, vertical: 0),
                 title: Text(
-                  '豁免站点将跳过广告拦截（防止反广告检测提示）',
+                  '拦截域名 / 隐藏元素 / 豁免站点 / 高级 JSON 规则',
                   style: TextStyle(fontSize: 11, color: Color(0xFF9CA3AF)),
                 ),
               ),
@@ -508,7 +511,7 @@ class _SettingsPageState extends State<SettingsPage> {
                     Icon(Icons.info_outline, size: 22, color: Color(0xFF374151)),
                 title: Text('未来浏览器', style: TextStyle(fontSize: 15)),
                 trailing: Text(
-                  '版本 1.0.6',
+                  '版本 1.0.7',
                   style: TextStyle(fontSize: 14, color: Color(0xFF9CA3AF)),
                 ),
               ),

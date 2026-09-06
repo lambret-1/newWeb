@@ -1,4 +1,5 @@
 import 'package:flutter_test/flutter_test.dart';
+import 'package:newweb/core/services/adblock_custom_service.dart';
 import 'package:newweb/core/services/settings_service.dart';
 import 'package:newweb/core/services/translate_service.dart';
 import 'package:shared_preferences/shared_preferences.dart';
@@ -89,6 +90,33 @@ void main() {
       expect(await SettingsService.instance.isAdBlockEnabled(), true);
       await SettingsService.instance.setAdBlockEnabled(false);
       expect(await SettingsService.instance.isAdBlockEnabled(), false);
+    });
+  });
+  group('AdblockCustomService 域名清洗', () {
+    test('完整网址去协议/路径/端口', () {
+      expect(
+        AdblockCustomService.normalizeDomainInput(
+            'https://www.example.com/path/page.html?x=1'),
+        'www.example.com',
+      );
+      expect(
+        AdblockCustomService.normalizeDomainInput('http://example.com:8080/a'),
+        'example.com',
+      );
+    });
+
+    test('域名转 url-filter 正则匹配子域', () {
+      final re =
+          RegExp(AdblockCustomService.domainToUrlFilter('example.com'));
+      expect(re.hasMatch('https://example.com/'), true);
+      expect(re.hasMatch('https://www.example.com/ads/x.js'), true);
+      expect(re.hasMatch('https://notexample.com/'), false);
+    });
+
+    test('通配符规则', () {
+      final re =
+          RegExp(AdblockCustomService.domainToUrlFilter('*.ads.com'));
+      expect(re.hasMatch('https://a.ads.com/b'), true);
     });
   });
 }

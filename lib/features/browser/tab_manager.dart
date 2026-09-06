@@ -1,5 +1,9 @@
 
+import 'dart:async';
+import 'dart:convert';
+
 import 'package:flutter/foundation.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 
 /// 浏览器标签元数据（WebViewController 由各 WebViewPage 内部持有）。
 class BrowserTab {
@@ -40,6 +44,7 @@ class TabManager extends ChangeNotifier {
     _tabs.add(tab);
     _activeTabId = tab.id;
     notifyListeners();
+    unawaited(saveSession());
     return tab;
   }
 
@@ -59,6 +64,7 @@ class TabManager extends ChangeNotifier {
     if (_activeTabId == id) return;
     _activeTabId = id;
     notifyListeners();
+    unawaited(saveSession());
   }
 
   void updateTab(String id, {String? url, String? title, bool? isLoading}) {
@@ -68,8 +74,87 @@ class TabManager extends ChangeNotifier {
     if (title != null) tab.title = title;
     if (isLoading != null) tab.isLoading = isLoading;
     notifyListeners();
+    unawaited(saveSession());
   }
 
   /// 快照已更新（数据由调用方写入 BrowserTab.snapshot）。
   void notifySnapshotUpdated() => notifyListeners();
+
+  // ---- 会话持久化（退出应用后恢复标签） ----
+
+  static const String _sessionKey = 'tab_session_v1';
+
+  /// 是否持久化会话（无痕模式为 false）。
+  bool persistSession = true;
+
+  /// 设置会话持久化开关（无痕模式关闭持久化并清除已存会话）。
+  Future<void> setPersistSession(bool value) async {
+    persistSession = value;
+    if (!value) await clearSession();
+  }
+
+  /// 保存当前标签会话（URL / 标题 / 激活项）。无痕模式下不保存。
+  Future<void> saveSession() async {
+    if (!persistSession) return;
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.setString(
+        _sessionKey,
+        jsonEncode({
+          'tabs': _tabs
+              .map((t) => {'url': t.url, 'title': t.title})
+              .toList(),
+          'activeIndex': _tabs.indexWhere((t) => t.id == _activeTabId),
+        }),
+      );
+    } catch (_) {}
+  }
+
+  /// 恢复上次会话；成功返回 true（有标签可恢复）。
+  Future<bool> restoreSession() async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      final raw = prefs.getString(_sessionKey);
+      if (raw == null || raw.isEmpty) return false;
+      final data = jsonDecode(raw) as Map<String, dynamic>;
+      final tabs = (data['tabs'] as List? ?? []).cast<Map<String, dynamic>>();
+      if (tabs.isEmpty) return false;
+      _tabs.clear();
+      for (final t in tabs) {
+        final url = (t['url'] as String? ?? '').trim();
+        final tab = BrowserTab(
+          id: 'tab-${_nextId++}',
+          url: url.isEmpty ? 'https://www.baidu.com' : url,
+        );
+        final title = t['title'] as String?;
+        if (title != null && title.isNotEmpty) tab.title = title;
+        _tabs.add(tab);
+      }
+      final activeIndex = (data['activeIndex'] as num?)?.toInt() ?? 0;
+      _activeTabId = _tabs[activeIndex.clamp(0, _tabs.length - 1)].id;
+      notifyListeners();
+      return true;
+    } catch (_) {
+      return false;
+    }
+  }
+
+  /// 是否已保存过会话。
+  Future<bool> hasSession() async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      final raw = prefs.getString(_sessionKey);
+      return raw != null && raw.isNotEmpty;
+    } catch (_) {
+      return false;
+    }
+  }
+
+  /// 清除已保存会话（无痕模式）。
+  Future<void> clearSession() async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.remove(_sessionKey);
+    } catch (_) {}
+  }
 }

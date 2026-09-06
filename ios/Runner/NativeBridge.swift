@@ -72,8 +72,8 @@ public class NativeBridgePlugin: NSObject, FlutterPlugin, QLPreviewControllerDat
     case "previewFile":
       previewFile(path: args["path"] as? String ?? "")
       result(true)
-    case "captureVisibleWebView":
-      captureVisibleWebView(result: result)
+    case "captureSnapshot":
+      captureSnapshot(url: args["url"] as? String ?? "", result: result)
     case "clearWebDataTypes":
       let types = args["types"] as? [String] ?? []
       clearWebDataTypes(types, result: result)
@@ -222,43 +222,70 @@ public class NativeBridgePlugin: NSObject, FlutterPlugin, QLPreviewControllerDat
     return root
   }
 
-  // MARK: - 标签快照（截取当前可见 WKWebView）
+  // MARK: - 标签快照（截取 WKWebView 快照）
 
-  /// 截取当前可见 WKWebView（即当前激活标签），返回 {png: base64, url}。
-  private func captureVisibleWebView(result: @escaping FlutterResult) {
-    guard let webView = findVisibleWebView() else {
+  /// 截取目标标签快照：优先按 URL 匹配，其次取可见 WebView。
+  /// PNG 写入沙盒 Caches/Snapshots（避免大消息传输），返回 {path, url}。
+  private func captureSnapshot(url: String, result: @escaping FlutterResult) {
+    guard let webView = findWebView(for: url) else {
       result(nil)
       return
     }
-    webView.takeSnapshot(with: nil) { image, error in
-      guard let image = image, error == nil, let data = image.pngData() else {
+    webView.takeSnapshot(with: nil) { [weak self] image, error in
+      guard let self = self, let image = image, error == nil,
+            let data = image.pngData() else {
         result(nil)
         return
       }
-      result([
-        "png": data.base64EncodedString(),
-        "url": webView.url?.absoluteString ?? "",
-      ])
+      guard let dir = FileManager.default.urls(
+        for: .cachesDirectory, in: .userDomainMask
+      ).first?.appendingPathComponent("Snapshots", isDirectory: true) else {
+        result(nil)
+        return
+      }
+      try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+      let file = dir.appendingPathComponent("snapshot_\(Int(Date().timeIntervalSince1970)).png")
+      do {
+        try data.write(to: file)
+        result(["path": file.path, "url": webView.url?.absoluteString ?? ""])
+      } catch {
+        result(nil)
+      }
     }
   }
 
-  /// 遍历所有窗口查找可见（未被 Offstage 隐藏）的 WKWebView。
-  private func findVisibleWebView() -> WKWebView? {
+  /// 查找目标 WKWebView：URL 精确/前缀匹配优先，其次取可见 WebView。
+  private func findWebView(for url: String) -> WKWebView? {
+    var visibleFallback: WKWebView?
+    let target = url.lowercased()
     for window in UIApplication.shared.windows {
-      if let found = visibleWebView(in: window) { return found }
+      if let found = matchWebView(in: window, target: target, fallback: &visibleFallback) {
+        return found
+      }
     }
-    return nil
+    return visibleFallback
   }
 
-  private func visibleWebView(in view: UIView) -> WKWebView? {
+  private func matchWebView(
+    in view: UIView,
+    target: String,
+    fallback: inout WKWebView?
+  ) -> WKWebView? {
     if let wv = view as? WKWebView {
       if !wv.isHidden && wv.frame.width > 1 && wv.alpha > 0.5 {
-        return wv
+        if fallback == nil { fallback = wv }
+        if !target.isEmpty,
+           let current = wv.url?.absoluteString.lowercased(),
+           current == target || current.hasPrefix(target) || target.hasPrefix(current) {
+          return wv
+        }
       }
       return nil
     }
     for sub in view.subviews {
-      if let found = visibleWebView(in: sub) { return found }
+      if let found = matchWebView(in: sub, target: target, fallback: &fallback) {
+        return found
+      }
     }
     return nil
   }

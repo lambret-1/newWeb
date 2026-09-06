@@ -45,8 +45,8 @@ class _BrowserScreenState extends State<BrowserScreen> {
   @override
   void initState() {
     super.initState();
-    _tabManager.addTab();
     _tabManager.addListener(_onTabsChanged);
+    unawaited(_initTabs());
     WidgetsBinding.instance.addPostFrameCallback((_) {
       DatabaseHelper.instance.initDefaultBookmarks();
       AdBlockService.instance.init();
@@ -56,10 +56,23 @@ class _BrowserScreenState extends State<BrowserScreen> {
     _listenNativeEvents();
   }
 
+  /// 初始化标签：优先恢复上次会话（非无痕），否则新建默认标签。
+  Future<void> _initTabs() async {
+    final incognito = await SettingsService.instance.isIncognitoEnabled();
+    if (mounted && incognito) setState(() => _incognito = true);
+    await _tabManager.setPersistSession(!incognito);
+    if (!incognito) {
+      final restored = await _tabManager.restoreSession();
+      if (restored) return;
+    }
+    _tabManager.addTab();
+  }
+
   Future<void> _loadIncognito() async {
     final value = await SettingsService.instance.isIncognitoEnabled();
     if (!mounted) return;
     setState(() => _incognito = value);
+    await _tabManager.setPersistSession(!value);
   }
 
   /// 监听原生事件：长按菜单动作（翻译此页 / 下载链接/图片）。
@@ -409,11 +422,12 @@ class _BrowserScreenState extends State<BrowserScreen> {
     _refreshSnapshot();
   }
 
-  /// 截取当前激活标签的最后浏览快照。
+  /// 截取当前激活标签的最后浏览快照（无痕模式不截图）。
   Future<void> _refreshSnapshot() async {
+    if (_incognito) return;
     final active = _tabManager.activeTab;
     if (active == null) return;
-    final shot = await NativeBridge.captureVisibleWebView();
+    final shot = await NativeBridge.captureSnapshot(active.url);
     if (!mounted) return;
     if (shot == null) return;
     final current = _tabManager.activeTab;
