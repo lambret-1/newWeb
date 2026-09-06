@@ -73,9 +73,7 @@ public class NativeBridgePlugin: NSObject, FlutterPlugin, QLPreviewControllerDat
       previewFile(path: args["path"] as? String ?? "")
       result(true)
     case "clearWebDataTypes":
-      let types = (args["types"] as? [String] ?? []).compactMap {
-        WKWebsiteDataType(rawValue: $0)
-      }
+      let types = args["types"] as? [String] ?? []
       clearWebDataTypes(types, result: result)
     case "getWebDataRecordCount":
       getWebDataRecordCount(result: result)
@@ -123,16 +121,17 @@ public class NativeBridgePlugin: NSObject, FlutterPlugin, QLPreviewControllerDat
 
   /// 按指定类型清空网站数据。
   private func clearWebDataTypes(
-    _ types: [WKWebsiteDataType],
+    _ types: [String],
     result: @escaping FlutterResult
   ) {
     guard !types.isEmpty else {
       result(true)
       return
     }
+    let typeSet = Set(types)
     let store = WKWebsiteDataStore.default()
-    store.fetchDataRecords(ofTypes: Set(types)) { records in
-      store.removeData(ofTypes: Set(types), for: records) {
+    store.fetchDataRecords(ofTypes: typeSet) { records in
+      store.removeData(ofTypes: typeSet, for: records) {
         result(true)
       }
     }
@@ -295,13 +294,13 @@ extension NativeBridgePlugin: FlutterStreamHandler {
   public func onListen(
     withArguments arguments: Any?,
     eventSink events: @escaping FlutterEventSink
-  ) -> Bool {
+  ) -> FlutterError? {
     eventSink = events
-    return true
+    return nil
   }
 
-  public func onCancel(withArguments arguments: Any?) -> Bool {
+  public func onCancel(withArguments arguments: Any?) -> FlutterError? {
     eventSink = nil
-    return true
+    return nil
   }
 }

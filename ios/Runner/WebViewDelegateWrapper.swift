@@ -19,7 +19,6 @@ class WebViewDelegateWrapper: NSObject, WKUIDelegate {
     completionHandler: @escaping (UIContextMenuConfiguration?) -> Void
   ) {
     let link = element.linkURL?.absoluteString ?? ""
-    let image = element.imageURL?.absoluteString ?? ""
     var children: [UIAction] = []
 
     children.append(
@@ -39,13 +38,6 @@ class WebViewDelegateWrapper: NSObject, WKUIDelegate {
       children.append(
         UIAction(title: "下载链接", image: UIImage(systemName: "arrow.down.circle")) { [weak self] _ in
           self?.onMenuAction?("download", ["url": link])
-        }
-      )
-    }
-    if !image.isEmpty {
-      children.append(
-        UIAction(title: "下载图片", image: UIImage(systemName: "photo")) { [weak self] _ in
-          self?.onMenuAction?("download", ["url": image])
         }
       )
     }
@@ -122,39 +114,9 @@ class WebViewDelegateWrapper: NSObject, WKUIDelegate {
 
   func webView(
     _ webView: WKWebView,
-    requestMediaCapturePermissionFor origin: WKSecurityOrigin,
-    initiatedByFrame frame: WKFrameInfo,
-    type: WKMediaCaptureType,
-    decisionHandler: @escaping (WKPermissionDecision) -> Void
-  ) {
-    if #available(iOS 15.0, *) {
-      original?.webView?(
-        webView,
-        requestMediaCapturePermissionFor: origin,
-        initiatedByFrame: frame,
-        type: type,
-        decisionHandler: decisionHandler
-      )
-    }
-  }
-
-  func webView(
-    _ webView: WKWebView,
     contextMenuWillPresentFor element: WKContextMenuElementInfo
   ) {
     original?.webView?(webView, contextMenuWillPresentFor: element)
-  }
-
-  func webView(
-    _ webView: WKWebView,
-    contextMenuFor element: WKContextMenuElementInfo,
-    willCommitWithAnimator animator: UIContextMenuInteractionCommitAnimating
-  ) {
-    original?.webView?(
-      webView,
-      contextMenuFor: element,
-      willCommitWithAnimator: animator
-    )
   }
 
   func webView(

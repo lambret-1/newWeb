@@ -14,7 +14,7 @@ class ContentBlockerManager: NSObject {
 
   func inject(rulesJson: String, completion: @escaping (Bool) -> Void) {
     WKContentRuleListStore.default().compileContentRuleList(
-      identifier: "com.newweb.adblock",
+      forIdentifier: "com.newweb.adblock",
       encodedContentRuleList: rulesJson
     ) { [weak self] list, error in
       guard let self = self, let list = list, error == nil else {
