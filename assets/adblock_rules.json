@@ -1,0 +1,37 @@
+[
+  {
+    "trigger": {
+      "url-filter": "^https?://([^/]*\\.)?(doubleclick\\.net|googlesyndication\\.com|googletagmanager\\.com|google-analytics\\.com|2mdn\\.net|adservice\\.google\\.com|googlevideo\\.com|facebook\\.com\\/tr|connect\\.facebook\\.net|graph\\.facebook\\.com|analytics\\.twitter\\.com|static\\.twitter\\.com|tpc\\.googlesyndication\\.com|secure\\.quantserve\\.com|quantserve\\.com|scorecardresearch\\.com|hotjar\\.com|mouseflow\\.com|segment\\.io|amplitude\\.com|mixpanel\\.com|branch\\.io|kochava\\.com|adjust\\.com|appsflyer\\.com|adnxs\\.com|adsrvr\\.org|adform\\.net|adroll\\.com|taboola\\.com|outbrain\\.com|criteo\\.com|mopub\\.com|applovin\\.com|unityads\\.unity3d\\.com|vungle\\.com|chartboost\\.com|adcolony\\.com|inmobi\\.com|rubiconproject\\.com|openx\\.net|pubmatic\\.com|smartadserver\\.com|revcontent\\.com|mgid\\.com|popads\\.net|propellerads\\.com|exoclick\\.com|adsterra\\.com|adbrite\\.com|adcash\\.com|zedo\\.com|advertising\\.com|adskeeper\\.co\\.uk|popunder\\.network|bidswitch\\.net|casalemedia\\.com|contextweb\\.com|districtm\\.io|emxdgt\\.com|indexww\\.com|media\\.net|mookie1\\.com|nativo\\.com|nrich\\.ai|onetag\\.com|spotxchange\\.com|triplelift\\.com|yieldmo\\.com|yieldoptimizer\\.com|51.la|cnzz\\.com|umeng\\.com|umtrack\\.com|sensorsdata\\.cn|growingio\\.com|talkingdata\\.com|zhanzhang\\.baidu\\.com|hm\\.baidu\\.com|pos\\.baidu\\.com|cpro\\.baidu\\.com|union\\.baidu\\.com|miao\\.baidu\\.com|bdstatic\\.com\\/.*\\/ad|dl\\.sina\\.com\\.cn|tajs\\.qq\\.com|pingjs\\.qq\\.com|qpic\\.cn\\/.*\\/ad|lf3-effect\\.byted\\.com|lf6-effect\\.byted\\.com|pangolin\\.bytedance\\.com|pglstatp\\.com|oceanengine\\.com|ad\\.baidu\\.com|ad\\.qq\\.com|ad\\.sina\\.com\\.cn|ad\\.csdn\\.net|ads\\.bytedance\\.com)\\b[^\\s]*"
+    },
+    "action": { "type": "block" }
+  },
+  {
+    "trigger": {
+      "url-filter": "^https?://([^/]*\\.)?(doubleclick\\.net|googlesyndication\\.com|google-analytics\\.com|connect\\.facebook\\.net|adnxs\\.com|adsrvr\\.org|taboola\\.com|outbrain\\.com|criteo\\.com|popads\\.net|propellerads\\.com|exoclick\\.com|adsterra\\.com|zedo\\.com|quantserve\\.com|scorecardresearch\\.com|hotjar\\.com|mouseflow\\.com|segment\\.io|amplitude\\.com|mixpanel\\.com|appsflyer\\.com|adjust\\.com|kochava\\.com|cnzz\\.com|umeng\\.com|talkingdata\\.com|sensorsdata\\.cn|growingio\\.com)\\b[^\\s]*"
+    },
+    "action": { "type": "block-cookies" }
+  },
+  {
+    "trigger": {
+      "url-filter": "^https?://([^/]*\\.)?(popads\\.net|propellerads\\.com|exoclick\\.com|adsterra\\.com|popunder\\.network|clic\\.pw|adcash\\.com)\\b[^\\s]*",
+      "resource-type": ["popup"]
+    },
+    "action": { "type": "block" }
+  },
+  {
+    "trigger": {
+      "url-filter": ".*",
+      "if-domain": ["*"]
+    },
+    "action": {
+      "type": "css-display-none",
+      "selector": ".ad, .ads, .advert, .advertisement, .adsbygoogle, #ad, #ads, .banner-ad, .ad-banner, .ad-container, .ad-wrapper, .google-ads, #google_ads, [class*=ad-banner], [id*=google_ads], .advertise, .sponsor-box, .promo-ad, .adslot"
+    }
+  },
+  {
+    "trigger": {
+      "url-filter": "^https?://([^/]*\\.)?(weibo\\.com|zhihu\\.com|bilibili\\.com|douban\\.com)\\b[^\\s]*"
+    },
+    "action": { "type": "ignore-previous-rules" }
+  }
+]

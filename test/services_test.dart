@@ -28,6 +28,49 @@ void main() {
       final result = await TranslateService.instance.translate('你好世界');
       expect(result, isNull);
     });
+
+    test('仅在线模式：测试环境无网络 → null', () async {
+      final result = await TranslateService.instance
+          .translate('hello world', mode: 'online');
+      expect(result, isNull);
+    });
+
+    test('仅离线模式：只走词库', () async {
+      final result = await TranslateService.instance
+          .translate('hello world', mode: 'offline');
+      expect(result, contains('你好'));
+      expect(result, contains('世界'));
+    });
+  });
+
+  group('SettingsService 翻译与拦截配置', () {
+    test('默认翻译模式为自动', () async {
+      expect(await SettingsService.instance.getTranslateMode(), 'auto');
+    });
+
+    test('翻译模式持久化', () async {
+      await SettingsService.instance.setTranslateMode('offline');
+      expect(await SettingsService.instance.getTranslateMode(), 'offline');
+    });
+
+    test('自动翻译白名单匹配子域名', () async {
+      await SettingsService.instance
+          .setAutoTranslateDomains(['en.wikipedia.org']);
+      expect(
+        await SettingsService.instance.shouldAutoTranslate('en.wikipedia.org'),
+        true,
+      );
+      expect(
+        await SettingsService.instance.shouldAutoTranslate('www.google.com'),
+        false,
+      );
+    });
+
+    test('豁免站点持久化', () async {
+      await SettingsService.instance.setAdblockWhitelist(['zhihu.com']);
+      final list = await SettingsService.instance.getAdblockWhitelist();
+      expect(list, contains('zhihu.com'));
+    });
   });
 
   group('SettingsService', () {

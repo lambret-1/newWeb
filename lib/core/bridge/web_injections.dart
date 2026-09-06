@@ -1,7 +1,8 @@
 /// 注入 WebView 的静态脚本集合：
-/// - 广告拦截（隐藏常见广告元素）
-/// - 选中文本翻译（浮动按钮 → JS Bridge）
+/// - 整页翻译（网页翻译：手动 / 自动触发，可恢复原文）
+/// - 阅读器模式（正文提取）
 /// - 离线页面采集（内联 CSS/图片后回传）
+/// - 弹窗兜底（广告域名 window.open 拦截；主拦截走原生 WKContentRuleList）
 class WebInjections {
   WebInjections._();
 
@@ -39,83 +40,171 @@ class WebInjections {
 })();
 ''';
 
-  /// 选中文本翻译脚本：监听 selectionchange，弹出「翻译」浮动按钮；
-  /// 结果由 App 通过 __NEWWEB_TRANSLATE_RESULT__(id, ok, text) 回传。
-  static String selectionTranslateScript() => r'''
+  /// 弹窗兜底脚本：拦截广告域名触发的 window.open（原生规则外的补充）。
+  static String popupGuardScript() => r'''
 (function() {
-  if (window.__NEWWEB_TRANSLATE__) return;
-  window.__NEWWEB_TRANSLATE__ = true;
-  var btn = null, card = null;
+  if (window.__NEWWEB_POPUP_GUARD__) return;
+  window.__NEWWEB_POPUP_GUARD__ = true;
+  var adHosts = /(popads\.net|propellerads\.com|exoclick\.com|adsterra\.com|popunder\.network|adcash\.com|clic\.pw)$/i;
+  var _open = window.open;
+  window.open = function(url, name, features) {
+    try {
+      var u = new URL(url, location.href);
+      if (adHosts.test(u.hostname)) return null;
+    } catch (e) { /* 忽略解析失败 */ }
+    return _open.apply(this, arguments);
+  };
+})();
+''';
 
-  function removeEl(el) { if (el && el.parentNode) el.parentNode.removeChild(el); }
+  /// 整页翻译脚本：提取可见文本节点，分批经 JS Bridge 翻译并替换，可恢复原文。
+  /// Dart 侧逐批回传结果：window.__NEWWEB_PAGE_TRANSLATE_APPLY__(id, results)。
+  static String pageTranslateScript() => r'''
+(function() {
+  if (window.__NEWWEB_PAGE_TRANSLATE__) return;
+  var nodes = [], backups = [], state = 'idle', total = 0, done = 0;
 
-  function showCard(text) {
-    removeEl(card);
-    card = document.createElement('div');
-    card.textContent = text;
-    card.style.cssText = [
-      'position:fixed', 'z-index:2147483647', 'background:#FFFFFF', 'color:#111111',
-      'font-size:14px', 'padding:10px 12px', 'border-radius:10px',
-      'box-shadow:0 4px 16px rgba(0,0,0,0.18)', 'max-width:280px',
-      'border:1px solid #E5E7EB', 'line-height:1.6',
-      'font-family:-apple-system,sans-serif', 'right:12px', 'top:64px'
-    ].join(';') + ';';
-    document.body.appendChild(card);
+  function collect(maxCount) {
+    nodes = []; backups = [];
+    var walker = document.createTreeWalker(document.body, NodeFilter.SHOW_TEXT, null);
+    var n;
+    while ((n = walker.nextNode())) {
+      var t = n.nodeValue.replace(/\s+/g, ' ').trim();
+      if (t.length < 2 || t.length > 200) continue;
+      var p = n.parentElement;
+      if (!p) continue;
+      var tag = p.tagName;
+      if (tag === 'SCRIPT' || tag === 'STYLE' || tag === 'NOSCRIPT' ||
+          tag === 'TEXTAREA' || tag === 'CODE' || tag === 'IFRAME') continue;
+      if (p.closest && p.closest('script,style,noscript,code,pre')) continue;
+      if (!/[A-Za-z]/.test(t)) continue;
+      backups.push({ node: n, text: t });
+      nodes.push({ index: backups.length - 1, text: t });
+      if (nodes.length >= maxCount) break;
+    }
   }
 
-  function createBtn(rect) {
-    removeEl(btn);
-    btn = document.createElement('div');
-    btn.textContent = '翻译';
-    btn.style.cssText = [
-      'position:fixed', 'z-index:2147483646', 'background:#3B82F6',
-      'color:#FFFFFF', 'font-size:13px', 'padding:4px 14px',
-      'border-radius:12px', 'box-shadow:0 2px 8px rgba(0,0,0,0.2)',
-      'cursor:pointer', 'font-family:-apple-system,sans-serif'
-    ].join(';') + ';';
-    var x = rect.left + rect.width / 2;
-    btn.style.left = Math.max(8, Math.min(x - 30, window.innerWidth - 68)) + 'px';
-    btn.style.top = Math.max(rect.top - 36, 8) + 'px';
-    btn.addEventListener('click', function() {
-      var sel = window.getSelection();
-      var text = sel ? sel.toString().trim() : '';
-      if (!text) return;
-      removeEl(btn);
-      showCard('翻译中…');
+  function translate(maxCount, batchSize, mode) {
+    if (state === 'translating') return false;
+    collect(maxCount || 300);
+    if (nodes.length === 0) { state = 'done'; return false; }
+    state = 'translating';
+    total = nodes.length; done = 0;
+    var pos = 0, batchId = 0;
+    function nextBatch() {
+      var slice = nodes.slice(pos, pos + batchSize);
+      if (slice.length === 0) { state = 'done'; emitState(); return; }
+      batchId++;
+      var id = 'pb-' + batchId;
       try {
         window.NativeBridge.postMessage(JSON.stringify({
-          id: 'translate-' + Date.now(),
-          action: 'translate',
-          payload: { text: text }
+          id: id,
+          action: 'translateBatch',
+          payload: {
+            texts: slice.map(function(s) { return s.text; }),
+            indices: slice.map(function(s) { return s.index; }),
+            mode: mode || 'auto'
+          }
         }));
-      } catch (e) {
-        showCard('翻译不可用');
-      }
-    });
-    document.body.appendChild(btn);
+      } catch (e) { state = 'error'; emitState(); return; }
+      pos += batchSize;
+    }
+    window.__NEWWEB_PAGE_TRANSLATE_APPLY__ = function(id, results) {
+      (results || []).forEach(function(r) {
+        var b = backups[r.index];
+        if (b && r.text) { b.node.nodeValue = r.text; done++; }
+      });
+      emitState();
+      nextBatch();
+    };
+    nextBatch();
+    return true;
   }
 
-  document.addEventListener('selectionchange', function() {
-    var sel = window.getSelection();
-    var text = sel ? sel.toString().trim() : '';
-    if (text.length >= 2 && text.length <= 500) {
-      try {
-        var range = sel.getRangeAt(0);
-        var rect = range.getBoundingClientRect();
-        if (rect.width > 0 && rect.height > 0) createBtn(rect);
-      } catch (e) { removeEl(btn); }
-    } else {
-      removeEl(btn);
-    }
-  });
-  document.addEventListener('scroll', function() {
-    removeEl(btn); removeEl(card);
-  }, true);
+  function restore() {
+    backups.forEach(function(b) { b.node.nodeValue = b.text; });
+    backups = []; nodes = []; state = 'idle'; total = 0; done = 0;
+  }
 
-  window.__NEWWEB_TRANSLATE_RESULT__ = function(id, ok, text) {
-    removeEl(btn);
-    showCard(ok ? text : ('翻译失败：' + text));
+  function emitState() {
+    try {
+      window.NativeBridge.postMessage(JSON.stringify({
+        id: 'pt-state-' + Date.now(),
+        action: 'translateState',
+        payload: { state: state, total: total, done: done }
+      }));
+    } catch (e) { /* 忽略 */ }
+  }
+
+  window.__NEWWEB_PAGE_TRANSLATE__ = {
+    translate: translate,
+    restore: restore,
+    getState: function() { return state; }
   };
+})();
+''';
+
+  /// 阅读器模式脚本：启发式提取正文（标题 + HTML），同步返回 JSON 字符串。
+  static String readerExtractScript() => r'''
+(function() {
+  if (window.__NEWWEB_READER__) return;
+  function score(el) {
+    var p = el.querySelectorAll('p').length;
+    var text = el.innerText ? el.innerText.length : 0;
+    return p * 10 + text / 500;
+  }
+  function extract() {
+    var candidates = [];
+    var selectors = [
+      'article', '[role="main"]', '.article-content', '.post-content',
+      '.entry-content', '.article', '.content', '#content', '.main-content',
+      '.article-body', '.rich_media_content'
+    ];
+    selectors.forEach(function(sel) {
+      var els = document.querySelectorAll(sel);
+      for (var i = 0; i < els.length; i++) candidates.push(els[i]);
+    });
+    if (candidates.length === 0) {
+      var divs = document.querySelectorAll('div');
+      for (var i = 0; i < divs.length; i++) {
+        var d = divs[i];
+        if (!d.querySelectorAll || d.querySelectorAll('div').length > 5) continue;
+        if (d.querySelectorAll('p').length >= 3) candidates.push(d);
+      }
+    }
+    if (candidates.length === 0) return null;
+    candidates.sort(function(a, b) { return score(b) - score(a); });
+    var best = candidates[0];
+    if (score(best) < 5) return null;
+    var title = document.title || '';
+    var h = best.querySelector('h1,h2');
+    if (h && h.innerText && h.innerText.trim()) title = h.innerText.trim();
+    var clone = best.cloneNode(true);
+    var drop = clone.querySelectorAll(
+      'script,style,noscript,iframe,ins,aside,nav,button,form,' +
+      '.ad,.ads,.advert,.advertisement,.adsbygoogle,.banner-ad,.ad-banner,' +
+      '.share,.comment,.related,.recommend,[class*=social]'
+    );
+    for (var j = 0; j < drop.length; j++) {
+      var el = drop[j];
+      if (el.parentNode) el.parentNode.removeChild(el);
+    }
+    var imgs = clone.querySelectorAll('img');
+    for (var k = 0; k < imgs.length; k++) {
+      var img = imgs[k];
+      if (img.src && img.src.indexOf('data:') !== 0) {
+        var src = img.getAttribute('data-src') || img.src;
+        if (src && img.src !== src) img.setAttribute('src', src);
+      }
+    }
+    return {
+      title: title,
+      html: clone.innerHTML,
+      url: location.href,
+      source: location.hostname
+    };
+  }
+  window.__NEWWEB_READER__ = extract;
 })();
 ''';
 

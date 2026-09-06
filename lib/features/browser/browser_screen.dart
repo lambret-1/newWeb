@@ -1,11 +1,18 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 
 import '../../core/db/database_helper.dart';
+import '../../core/services/adblock_service.dart';
+import '../../core/services/download_service.dart';
 import '../../core/services/offline_service.dart';
 import '../../core/services/settings_service.dart';
+import '../../native/native_bridge.dart';
 import 'bookmarks_page.dart';
+import 'download_page.dart';
 import 'history_page.dart';
 import 'offline_pages_page.dart';
+import 'reader_page.dart';
 import 'settings_page.dart';
 import 'tab_manager.dart';
 import 'webview_page.dart';
@@ -32,6 +39,7 @@ class _BrowserScreenState extends State<BrowserScreen> {
   bool _canGoBack = false;
   bool _canGoForward = false;
   bool _incognito = false;
+  StreamSubscription<Map<String, dynamic>>? _nativeSub;
 
   @override
   void initState() {
@@ -40,8 +48,11 @@ class _BrowserScreenState extends State<BrowserScreen> {
     _tabManager.addListener(_onTabsChanged);
     WidgetsBinding.instance.addPostFrameCallback((_) {
       DatabaseHelper.instance.initDefaultBookmarks();
+      AdBlockService.instance.init();
+      DownloadService.instance.ensureListening();
     });
     _loadIncognito();
+    _listenNativeEvents();
   }
 
   Future<void> _loadIncognito() async {
@@ -50,8 +61,29 @@ class _BrowserScreenState extends State<BrowserScreen> {
     setState(() => _incognito = value);
   }
 
+  /// 监听原生事件：长按菜单动作（翻译此页 / 下载链接/图片）。
+  void _listenNativeEvents() {
+    _nativeSub = NativeBridge.events().listen((e) {
+      final event = e['event'] as String?;
+      if (event == null) return;
+      switch (event) {
+        case 'translatePage':
+          _translatePage();
+        case 'download':
+          final url = e['url'] as String? ?? '';
+          if (url.isNotEmpty) {
+            DownloadService.instance.start(url);
+            _showMessage('已开始下载');
+          }
+      }
+    }, onError: (Object e) {
+      debugPrint('[Browser] 原生事件错误: $e');
+    });
+  }
+
   @override
   void dispose() {
+    _nativeSub?.cancel();
     _tabManager.removeListener(_onTabsChanged);
     _tabManager.dispose();
     _addressController.dispose();
@@ -132,6 +164,16 @@ class _BrowserScreenState extends State<BrowserScreen> {
               onTap: () => _addBookmark(sheetContext),
             ),
             _sheetItem(
+              icon: Icons.translate,
+              label: '翻译此页',
+              onTap: () => _translatePageFromSheet(sheetContext),
+            ),
+            _sheetItem(
+              icon: Icons.menu_book_outlined,
+              label: '阅读模式',
+              onTap: () => _openReader(sheetContext),
+            ),
+            _sheetItem(
               icon: Icons.download_outlined,
               label: '保存离线页面',
               onTap: () => _saveOffline(sheetContext),
@@ -140,6 +182,11 @@ class _BrowserScreenState extends State<BrowserScreen> {
               icon: Icons.offline_pin_outlined,
               label: '离线页面',
               onTap: () => _openOfflinePages(sheetContext),
+            ),
+            _sheetItem(
+              icon: Icons.file_download_outlined,
+              label: '下载管理',
+              onTap: () => _openDownloads(sheetContext),
             ),
             _sheetItem(
               icon: Icons.settings_outlined,
@@ -253,6 +300,57 @@ class _BrowserScreenState extends State<BrowserScreen> {
     Navigator.of(context)
         .push<void>(MaterialPageRoute(builder: (_) => const SettingsPage()))
         .then((_) => _loadIncognito());
+  }
+
+  /// 翻译此页（已翻译则恢复原文）。
+  void _translatePageFromSheet(BuildContext sheetContext) {
+    Navigator.of(sheetContext).pop();
+    _translatePage();
+  }
+
+  Future<void> _translatePage() async {
+    final webView = _currentWebView();
+    if (webView == null) return;
+    final result = await webView.translatePage();
+    if (!mounted) return;
+    switch (result) {
+      case 'started':
+        _showMessage('正在翻译当前页面…');
+      case 'restored':
+        _showMessage('已恢复原文');
+      case 'noop':
+        _showMessage('当前页面没有可翻译的文本');
+    }
+  }
+
+  /// 阅读模式：提取正文并打开阅读页。
+  void _openReader(BuildContext sheetContext) {
+    Navigator.of(sheetContext).pop();
+    final webView = _currentWebView();
+    if (webView == null) return;
+    _showMessage('正在提取正文…');
+    webView.extractReader().then((data) {
+      if (!mounted) return;
+      if (data == null || data['html'] == null || data['html']!.isEmpty) {
+        _showMessage('未提取到正文内容');
+        return;
+      }
+      Navigator.of(context).push(
+        MaterialPageRoute(
+          builder: (_) => ReaderPage(
+            title: data['title'] ?? '阅读模式',
+            html: data['html']!,
+            sourceUrl: data['url'] ?? '',
+          ),
+        ),
+      );
+    });
+  }
+
+  void _openDownloads(BuildContext sheetContext) {
+    Navigator.of(sheetContext).pop();
+    Navigator.of(context)
+        .push<void>(MaterialPageRoute(builder: (_) => const DownloadPage()));
   }
 
   /// 页面加载完成：更新标签元数据并写入历史（无痕模式下不记录）。

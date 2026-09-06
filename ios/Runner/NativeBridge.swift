@@ -1,30 +1,108 @@
 import Flutter
 import UIKit
 import WebKit
+import QuickLook
 
-/// 原生能力桥：缓存管理（后续扩展离线保存 / 原生翻译等）。
-public class NativeBridgePlugin: NSObject, FlutterPlugin {
+/// 原生能力桥：缓存管理 / 内容拦截器 / 下载管理 / 文件预览 / DNS 描述文件。
+/// 事件通道（com.newweb/native_events）推送下载进度与长按菜单动作。
+public class NativeBridgePlugin: NSObject, FlutterPlugin, QLPreviewControllerDataSource {
+  private var eventSink: FlutterEventSink?
+  private var previewURL: URL?
+
   public static func register(with registrar: FlutterPluginRegistrar) {
     let channel = FlutterMethodChannel(
       name: "com.newweb/native",
       binaryMessenger: registrar.messenger()
     )
+    let events = FlutterEventChannel(
+      name: "com.newweb/native_events",
+      binaryMessenger: registrar.messenger()
+    )
     let instance = NativeBridgePlugin()
     registrar.addMethodCallDelegate(instance, channel: channel)
+    events.setStreamHandler(instance)
+
+    ContentBlockerManager.shared.onMenuAction = { [weak instance] action, payload in
+      instance?.sendEvent(action, payload)
+    }
+    DownloadManager.shared.onEvent = { [weak instance] event, payload in
+      instance?.sendEvent("download_\(event)", payload)
+    }
+  }
+
+  private func sendEvent(_ name: String, _ payload: [String: Any]) {
+    var dict = payload
+    dict["event"] = name
+    eventSink?(dict)
   }
 
   public func handle(_ call: FlutterMethodCall, result: @escaping FlutterResult) {
+    guard let args = call.arguments as? [String: Any] else {
+      if call.method == "getCacheSize" || call.method == "clearWebData" || call.method == "generateDNSProfile" {
+        handleNoArg(call, result: result)
+        return
+      }
+      result(FlutterMethodNotImplemented)
+      return
+    }
     switch call.method {
-    case "clearWebData":
-      clearWebData(result: result)
-    case "getCacheSize":
-      getCacheSize(result: result)
+    case "injectContentBlocker":
+      let rules = args["rules"] as? String ?? "[]"
+      ContentBlockerManager.shared.inject(rulesJson: rules) { ok in
+        result(ok)
+      }
+    case "startDownload":
+      DownloadManager.shared.start(
+        url: args["url"] as? String ?? "",
+        taskId: args["taskId"] as? String ?? ""
+      )
+      result(true)
+    case "pauseDownload":
+      DownloadManager.shared.pause(taskId: args["taskId"] as? String ?? "")
+      result(true)
+    case "resumeDownload":
+      DownloadManager.shared.resume(
+        taskId: args["taskId"] as? String ?? "",
+        url: args["url"] as? String ?? ""
+      )
+      result(true)
+    case "cancelDownload":
+      DownloadManager.shared.cancel(taskId: args["taskId"] as? String ?? "")
+      result(true)
+    case "previewFile":
+      previewFile(path: args["path"] as? String ?? "")
+      result(true)
+    case "clearWebDataTypes":
+      let types = (args["types"] as? [String] ?? []).compactMap {
+        WKWebsiteDataType(rawValue: $0)
+      }
+      clearWebDataTypes(types, result: result)
+    case "getWebDataRecordCount":
+      getWebDataRecordCount(result: result)
+    case "clearHttpCache":
+      URLCache.shared.removeAllCachedResponses()
+      clearCachesDirectory()
+      result(true)
     default:
       result(FlutterMethodNotImplemented)
     }
   }
 
-  /// 清空全部网站数据（Cookie / 缓存 / localStorage 等）。
+  private func handleNoArg(_ call: FlutterMethodCall, result: @escaping FlutterResult) {
+    switch call.method {
+    case "clearWebData":
+      clearWebData(result: result)
+    case "getCacheSize":
+      getCacheSize(result: result)
+    case "generateDNSProfile":
+      result(generateDNSProfile())
+    default:
+      result(FlutterMethodNotImplemented)
+    }
+  }
+
+  // MARK: - 缓存管理
+
   private func clearWebData(result: @escaping FlutterResult) {
     let store = WKWebsiteDataStore.default()
     store.fetchDataRecords(ofTypes: WKWebsiteDataStore.allWebsiteDataTypes()) { records in
@@ -39,9 +117,33 @@ public class NativeBridgePlugin: NSObject, FlutterPlugin {
     }
   }
 
-  /// 计算网站缓存大小（字节）：统计沙盒 Caches 目录。
   private func getCacheSize(result: @escaping FlutterResult) {
     result(cacheDirectorySize())
+  }
+
+  /// 按指定类型清空网站数据。
+  private func clearWebDataTypes(
+    _ types: [WKWebsiteDataType],
+    result: @escaping FlutterResult
+  ) {
+    guard !types.isEmpty else {
+      result(true)
+      return
+    }
+    let store = WKWebsiteDataStore.default()
+    store.fetchDataRecords(ofTypes: Set(types)) { records in
+      store.removeData(ofTypes: Set(types), for: records) {
+        result(true)
+      }
+    }
+  }
+
+  /// 网站数据记录总数。
+  private func getWebDataRecordCount(result: @escaping FlutterResult) {
+    let store = WKWebsiteDataStore.default()
+    store.fetchDataRecords(ofTypes: WKWebsiteDataStore.allWebsiteDataTypes()) { records in
+      result(records.count)
+    }
   }
 
   private func cacheDirectorySize() -> Int {
@@ -80,5 +182,126 @@ public class NativeBridgePlugin: NSObject, FlutterPlugin {
       if values.isDirectory == true { continue }
       try? FileManager.default.removeItem(at: url)
     }
+  }
+
+  // MARK: - 文件预览（QLPreviewController）
+
+  private func previewFile(path: String) {
+    previewURL = URL(fileURLWithPath: path)
+    let preview = QLPreviewController()
+    preview.dataSource = self
+    topViewController()?.present(preview, animated: true)
+  }
+
+  public func numberOfPreviewItems(in controller: QLPreviewController) -> Int {
+    previewURL == nil ? 0 : 1
+  }
+
+  public func previewController(
+    _ controller: QLPreviewController,
+    previewItemAt index: Int
+  ) -> QLPreviewItem {
+    (previewURL ?? URL(fileURLWithPath: "/")) as NSURL
+  }
+
+  private func topViewController(
+    base: UIViewController? = nil
+  ) -> UIViewController? {
+    let keyWindow = UIApplication.shared.windows.first { $0.isKeyWindow }
+    let root = base ?? keyWindow?.rootViewController
+    if let nav = root as? UINavigationController {
+      return topViewController(base: nav.visibleViewController)
+    }
+    if let tab = root as? UITabBarController {
+      return topViewController(base: tab.selectedViewController)
+    }
+    if let presented = root?.presentedViewController {
+      return topViewController(base: presented)
+    }
+    return root
+  }
+
+  // MARK: - DNS 描述文件（AdGuard DNS）
+
+  private func generateDNSProfile() -> String? {
+    let uuid1 = UUID().uuidString
+    let uuid2 = UUID().uuidString
+    let xml = """
+    <?xml version="1.0" encoding="UTF-8"?>
+    <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+    <plist version="1.0">
+    <dict>
+      <key>PayloadContent</key>
+      <array>
+        <dict>
+          <key>PayloadDescription</key>
+          <string>将系统 DNS 配置为 AdGuard DNS（广告与追踪拦截）</string>
+          <key>PayloadDisplayName</key>
+          <string>AdGuard DNS</string>
+          <key>PayloadIdentifier</key>
+          <string>com.newweb.dns.adguard</string>
+          <key>PayloadType</key>
+          <string>com.apple.dnsSettings.managed</string>
+          <key>PayloadUUID</key>
+          <string>\(uuid1)</string>
+          <key>PayloadVersion</key>
+          <integer>1</integer>
+          <key>ProxiedContentFilterRules</key>
+          <array>
+            <dict>
+              <key>ProviderBundleIdentifier</key>
+              <string>com.apple.SystemConfiguration.dns-settings</string>
+            </dict>
+          </array>
+          <key>ServerName</key>
+          <string>AdGuard DNS</string>
+          <key>DNSSettings</key>
+          <dict>
+            <key>DNSProtocol</key>
+            <string>HTTPS</string>
+            <key>ServerURL</key>
+            <string>https://dns.adguard-dns.com/dns-query</string>
+          </dict>
+        </dict>
+      </array>
+      <key>PayloadDisplayName</key>
+      <string>AdGuard DNS 配置</string>
+      <key>PayloadIdentifier</key>
+      <string>com.newweb.dns</string>
+      <key>PayloadType</key>
+      <string>Configuration</string>
+      <key>PayloadUUID</key>
+      <string>\(uuid2)</string>
+      <key>PayloadVersion</key>
+      <integer>1</integer>
+    </dict>
+    </plist>
+    """
+    let dir = FileManager.default
+      .urls(for: .documentDirectory, in: .userDomainMask).first!
+      .appendingPathComponent("DNS", isDirectory: true)
+    try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+    let file = dir.appendingPathComponent("AdGuardDNS_配置.mobileconfig")
+    do {
+      try xml.write(to: file, atomically: true, encoding: .utf8)
+      return file.path
+    } catch {
+      return nil
+    }
+  }
+}
+
+extension NativeBridgePlugin: FlutterStreamHandler {
+  public func onListen(
+    withArguments arguments: Any?,
+    eventSink events: @escaping FlutterEventSink
+  ) -> Bool {
+    eventSink = events
+    return true
+  }
+
+  public func onCancel(withArguments arguments: Any?) -> Bool {
+    eventSink = nil
+    return true
   }
 }

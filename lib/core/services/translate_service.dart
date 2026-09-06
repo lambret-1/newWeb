@@ -31,31 +31,39 @@ class TranslateService {
     return _dict!;
   }
 
-  /// 翻译文本，自动走降级链；全部失败返回 null。
-  Future<String?> translate(String text) async {
+  /// 翻译文本，按模式走降级链；全部失败返回 null。
+  /// mode：auto（在线优先，词库兜底）/ online（仅在线）/ offline（仅本地词库）。
+  Future<String?> translate(String text, {String mode = 'auto'}) async {
     final trimmed = text.trim();
     if (trimmed.isEmpty) return null;
     if (trimmed.length > 500) return '文本过长，请分段翻译（不超过 500 字符）';
 
-    // 1. 腾讯云（已配置时优先）
-    final secretId = await SettingsService.instance.getTencentSecretId();
-    final secretKey = await SettingsService.instance.getTencentSecretKey();
-    if (secretId != null && secretKey != null) {
-      final client = TencentTranslateClient(
-        secretId: secretId,
-        secretKey: secretKey,
-      );
-      final result = await client.translate(trimmed);
-      if (result != null) return result;
+    final offlineOnly = mode == 'offline';
+    final onlineOnly = mode == 'online';
+
+    if (!offlineOnly) {
+      // 1. 腾讯云（已配置时优先）
+      final secretId = await SettingsService.instance.getTencentSecretId();
+      final secretKey = await SettingsService.instance.getTencentSecretKey();
+      if (secretId != null && secretKey != null) {
+        final client = TencentTranslateClient(
+          secretId: secretId,
+          secretKey: secretKey,
+        );
+        final result = await client.translate(trimmed);
+        if (result != null) return result;
+      }
+
+      // 2. Google 免费接口
+      final google = await _google(trimmed);
+      if (google != null) return google;
+
+      // 3. MyMemory
+      final mymemory = await _mymemory(trimmed);
+      if (mymemory != null) return mymemory;
     }
 
-    // 2. Google 免费接口
-    final google = await _google(trimmed);
-    if (google != null) return google;
-
-    // 3. MyMemory
-    final mymemory = await _mymemory(trimmed);
-    if (mymemory != null) return mymemory;
+    if (onlineOnly) return null;
 
     // 4. 本地词库兜底
     return _localDict(trimmed);

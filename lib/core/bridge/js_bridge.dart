@@ -1,3 +1,5 @@
+import 'dart:convert';
+
 import 'package:flutter/foundation.dart';
 import 'package:webview_flutter/webview_flutter.dart';
 
@@ -10,7 +12,8 @@ typedef BridgeHandler = Future<dynamic> Function(Map<String, dynamic> payload);
 ///
 /// 内置动作：
 /// - `ping` / `getAppInfo`：通道探活
-/// - `translate`：选中文本翻译（结果经 runJavaScript 回传页面浮动卡片）
+/// - `translateBatch`：整页翻译批次（结果经 runJavaScript 回传页面替换）
+/// - `translateState`：整页翻译状态（通知 Dart 展示进度）
 /// - `offlineCollected`：离线页面采集完成（回传归档 HTML）
 class JsBridge {
   static const String channelName = 'NativeBridge';
@@ -21,16 +24,22 @@ class JsBridge {
   void Function(String script)? responseRunner;
 
   /// 翻译实现（由外部注入 TranslateService）。
-  Future<String?> Function(String text)? translateHandler;
+  Future<String?> Function(String text, {String mode})? translateHandler;
+
+  /// 翻译模式获取器（由外部注入，读取设置）。
+  String Function()? translateModeGetter;
 
   /// 离线采集完成回调（title, url, html）。
   void Function(String title, String url, String html)? onOfflineCollected;
+
+  /// 整页翻译状态回调（state / total / done）。
+  void Function(String state, int total, int done)? onTranslateState;
 
   JsBridge() {
     register('ping', (_) async => 'pong');
     register('getAppInfo', (_) async => {
           'name': '未来浏览器',
-          'version': '1.0.2',
+          'version': '1.0.3',
           'platform': 'ios',
         });
   }
@@ -55,9 +64,19 @@ class JsBridge {
       return;
     }
 
-    // 特判：选中文本翻译（需要回传页面）
-    if (msg.action == 'translate') {
-      await _handleTranslate(msg);
+    // 特判：整页翻译批次（翻译结果回传页面）
+    if (msg.action == 'translateBatch') {
+      await _handleTranslateBatch(msg);
+      return;
+    }
+
+    // 特判：整页翻译状态
+    if (msg.action == 'translateState') {
+      onTranslateState?.call(
+        (msg.payload['state'] ?? '') as String,
+        (msg.payload['total'] ?? 0) as int,
+        (msg.payload['done'] ?? 0) as int,
+      );
       return;
     }
 
@@ -85,18 +104,29 @@ class JsBridge {
     }
   }
 
-  Future<void> _handleTranslate(BridgeMessage msg) async {
-    final text = (msg.payload['text'] ?? '') as String;
-    String? result;
-    try {
-      result = await translateHandler?.call(text);
-    } catch (e) {
-      debugPrint('[JsBridge] 翻译失败: $e');
+  /// 整页翻译批次处理：逐条翻译后回传页面替换文本。
+  Future<void> _handleTranslateBatch(BridgeMessage msg) async {
+    final payload = msg.payload;
+    final texts = (payload['texts'] as List?)?.cast<String>() ?? [];
+    final indices = (payload['indices'] as List?)?.cast<int>() ?? [];
+    final mode = (payload['mode'] as String?) ?? 'auto';
+
+    final results = <Map<String, dynamic>>[];
+    for (var i = 0; i < texts.length; i++) {
+      String? result;
+      try {
+        result = await translateHandler?.call(texts[i], mode: mode);
+      } catch (e) {
+        debugPrint('[JsBridge] 批次翻译失败: $e');
+      }
+      if (result != null) {
+        results.add({'index': indices[i], 'text': result});
+      }
     }
-    final ok = result != null;
+
     final script =
-        'window.__NEWWEB_TRANSLATE_RESULT__(${_jsString(msg.id)}, '
-        '$ok, ${_jsString(result ?? '翻译服务暂不可用')});';
+        'window.__NEWWEB_PAGE_TRANSLATE_APPLY__(${_jsString(msg.id)}, '
+        '${jsonEncode(results)});';
     responseRunner?.call(script);
   }
 

@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:convert';
 
 import 'package:flutter/material.dart';
 import 'package:webview_flutter/webview_flutter.dart';
@@ -6,6 +7,7 @@ import 'package:webview_flutter/webview_flutter.dart';
 import '../../core/bridge/js_bridge.dart';
 import '../../core/bridge/web_injections.dart';
 import '../../core/config/app_config.dart';
+import '../../core/services/adblock_service.dart';
 import '../../core/services/settings_service.dart';
 import '../../core/services/translate_service.dart';
 
@@ -23,6 +25,7 @@ class WebViewPage extends StatefulWidget {
     this.onPageFinished,
     this.onTitleChanged,
     this.onOfflineCollected,
+    this.onTranslateState,
   });
 
   final ValueChanged<double> onProgress;
@@ -37,6 +40,9 @@ class WebViewPage extends StatefulWidget {
   /// 离线页面采集完成（title, url, html）。
   final void Function(String title, String url, String html)? onOfflineCollected;
 
+  /// 整页翻译状态（state / total / done）。
+  final void Function(String state, int total, int done)? onTranslateState;
+
   @override
   State<WebViewPage> createState() => WebViewPageState();
 }
@@ -44,7 +50,6 @@ class WebViewPage extends StatefulWidget {
 class WebViewPageState extends State<WebViewPage> {
   late WebViewController _controller;
   final JsBridge _bridge = JsBridge();
-  bool _adBlockEnabled = false;
 
   @override
   void initState() {
@@ -58,17 +63,15 @@ class WebViewPageState extends State<WebViewPage> {
         }),
       );
     };
-    _bridge.translateHandler = TranslateService.instance.translate;
+    _bridge.translateHandler = (String text, {String mode = 'auto'}) {
+      return TranslateService.instance.translate(text, mode: mode);
+    };
     _bridge.onOfflineCollected = (title, url, html) {
       widget.onOfflineCollected?.call(title, url, html);
     };
-
-    // 异步读取广告拦截开关
-    unawaited(
-      SettingsService.instance.isAdBlockEnabled().then((value) {
-        if (mounted) setState(() => _adBlockEnabled = value);
-      }),
-    );
+    _bridge.onTranslateState = (state, total, done) {
+      widget.onTranslateState?.call(state, total, done);
+    };
 
     final controller = WebViewController();
     _controller = controller;
@@ -107,6 +110,8 @@ class WebViewPageState extends State<WebViewPage> {
             if (title != null && title.isNotEmpty) {
               widget.onTitleChanged?.call(title);
             }
+            // 自动翻译白名单检测
+            unawaited(_maybeAutoTranslate(url));
           },
           onUrlChange: (UrlChange change) {
             widget.onUrlChanged(change.url?.toString());
@@ -121,14 +126,21 @@ class WebViewPageState extends State<WebViewPage> {
       ),
     );
     unawaited(controller.loadRequest(Uri.parse(widget.initialUrl)));
+    // WebView 挂载后幂等补注入内容拦截器
+    unawaited(
+      Future.delayed(const Duration(milliseconds: 500), () {
+        return AdBlockService.instance.ensureInjected();
+      }),
+    );
   }
 
-  /// 注入功能脚本（翻译 / 离线采集 / 广告拦截）。
+  /// 注入功能脚本（弹窗兜底 / 整页翻译 / 阅读器 / 离线采集）。
   void _injectFeatureScripts() {
     final scripts = [
-      WebInjections.selectionTranslateScript(),
+      WebInjections.popupGuardScript(),
+      WebInjections.pageTranslateScript(),
+      WebInjections.readerExtractScript(),
       WebInjections.collectOfflineScript(),
-      if (_adBlockEnabled) WebInjections.adBlockScript(),
     ];
     for (final script in scripts) {
       unawaited(
@@ -154,6 +166,19 @@ class WebViewPageState extends State<WebViewPage> {
       return offset.dy <= 1;
     } catch (_) {
       return true;
+    }
+  }
+
+  /// 自动翻译：命中白名单域名且页面未翻译时触发整页翻译。
+  Future<void> _maybeAutoTranslate(String url) async {
+    try {
+      final uri = Uri.parse(url);
+      if (uri.host.isEmpty) return;
+      final should = await SettingsService.instance.shouldAutoTranslate(uri.host);
+      if (!should) return;
+      await translatePage();
+    } catch (_) {
+      // 忽略解析失败
     }
   }
 
@@ -199,6 +224,65 @@ class WebViewPageState extends State<WebViewPage> {
   /// 加载本地 HTML 文件（离线页面）。
   Future<void> loadFile(String path) async {
     await _controller.loadFile(path);
+  }
+
+  // ---- 网页翻译 ----
+
+  /// 手动翻译当前页；若已翻译则恢复原文。返回操作类型。
+  Future<String> translatePage() async {
+    await _controller.runJavaScript(WebInjections.pageTranslateScript());
+    final mode = await SettingsService.instance.getTranslateMode();
+    final result = await _controller.runJavaScriptReturningResult(
+      '''(function(){
+        var pt = window.__NEWWEB_PAGE_TRANSLATE__;
+        if (!pt) return 'noop';
+        var s = pt.getState();
+        if (s === 'translated' || s === 'translating') {
+          pt.restore();
+          return 'restored';
+        }
+        pt.translate(300, 10, '$mode');
+        return 'started';
+      })();''',
+    );
+    return result is String ? result : 'noop';
+  }
+
+  /// 页面是否处于翻译状态。
+  Future<bool> isPageTranslated() async {
+    try {
+      final state = await _controller.runJavaScriptReturningResult(
+        '''(function(){
+          var pt = window.__NEWWEB_PAGE_TRANSLATE__;
+          return pt ? pt.getState() : 'idle';
+        })();''',
+      );
+      return state == 'translated' || state == 'translating';
+    } catch (_) {
+      return false;
+    }
+  }
+
+  // ---- 阅读器模式 ----
+
+  /// 提取正文，返回 {title, html, url}；提取失败返回 null。
+  Future<Map<String, String>?> extractReader() async {
+    try {
+      await _controller.runJavaScript(WebInjections.readerExtractScript());
+      final result = (await _controller.runJavaScriptReturningResult(
+        'JSON.stringify((window.__NEWWEB_READER__ && window.__NEWWEB_READER__()) || null)',
+      )) as String?;
+      if (result == null || result == 'null') return null;
+      final data = jsonDecode(result) as Map<String, dynamic>;
+      return {
+        'title': (data['title'] ?? '阅读模式') as String,
+        'html': (data['html'] ?? '') as String,
+        'url': (data['url'] ?? '') as String,
+      };
+    } catch (e) {
+      debugPrint('[Reader] 提取失败: $e');
+      return null;
+    }
   }
 
   @override

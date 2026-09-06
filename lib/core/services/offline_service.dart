@@ -92,4 +92,16 @@ class OfflineService {
       await file.delete();
     }
   }
+
+  /// 清空全部离线页面。
+  Future<void> clearAll() async {
+    final dir = await _dir();
+    if (await dir.exists()) {
+      for (final f in dir.listSync()) {
+        try {
+          await f.delete();
+        } catch (_) {}
+      }
+    }
+  }
 }
