@@ -1,6 +1,6 @@
-# NewWeb — 轻量 iOS 浏览器（Flutter + WKWebView 混合开发）
+# 未来浏览器 — 轻量 iOS 浏览器（Flutter + WKWebView 混合开发）
 
-Flutter 3.47.x + [webview_flutter](https://pub.dev/packages/webview_flutter) 4.14.x 构建的 iOS 浏览器。
+Flutter 3.47.x + [webview_flutter](https://pub.dev/packages/webview_flutter) 4.14.x 构建的 iOS 浏览器（工程名 NewWeb）。
 iOS 底层为系统 WKWebView（App Store 对浏览器的强制要求），Flutter 提供壳 UI 与业务逻辑。
 
 - **目标系统**：iOS 15.0+
@@ -81,5 +81,6 @@ flutter build ios --release --no-codesign   # 无签名
 
 ## 版本管理
 
-- 版本号：`pubspec.yaml` 中 `version: 1.0.0+1`（构建号 +1 递增）
-- 应用名：`ios/Runner/Info.plist` 中 `CFBundleDisplayName`
+- **版本规则**：每次更新 `pubspec.yaml` 中 `version` 的版本号 +0.01（如 `1.0.0+1` → `1.0.1+1`，构建号保持不变）
+- 应用名：`ios/Runner/Info.plist` 中 `CFBundleDisplayName` = 未来浏览器
+- 打包模式：默认无签名 IPA（TrollStore 侧载）；配置证书 Secrets 后自动切换签名模式
