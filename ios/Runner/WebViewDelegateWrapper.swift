@@ -111,18 +111,4 @@ class WebViewDelegateWrapper: NSObject, WKUIDelegate {
       completionHandler: completionHandler
     )
   }
-
-  func webView(
-    _ webView: WKWebView,
-    contextMenuWillPresentFor element: WKContextMenuElementInfo
-  ) {
-    original?.webView?(webView, contextMenuWillPresentFor: element)
-  }
-
-  func webView(
-    _ webView: WKWebView,
-    contextMenuDidEndFor element: WKContextMenuElementInfo
-  ) {
-    original?.webView?(webView, contextMenuDidEndFor: element)
-  }
 }
