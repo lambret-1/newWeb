@@ -1,5 +1,3 @@
-import 'dart:convert';
-
 import 'package:flutter/foundation.dart';
 import 'package:webview_flutter/webview_flutter.dart';
 
@@ -10,21 +8,29 @@ typedef BridgeHandler = Future<dynamic> Function(Map<String, dynamic> payload);
 
 /// JS Bridge：管理 Web→App（JavaScriptChannel）与 App→Web（runJavaScript）。
 ///
-/// M1 内置 `ping` / `getAppInfo` 两个探活动作，用于验证通道连通；
-/// `saveOffline` / `translate` / `share` / `download` 等动作在 M2+ 注册。
+/// 内置动作：
+/// - `ping` / `getAppInfo`：通道探活
+/// - `translate`：选中文本翻译（结果经 runJavaScript 回传页面浮动卡片）
+/// - `offlineCollected`：离线页面采集完成（回传归档 HTML）
 class JsBridge {
   static const String channelName = 'NativeBridge';
 
-  /// 页面侧全局接收函数名（App→Web 回传目标）。
-  static const String _responseTarget = r'window.__NEWWEB_NATIVE__';
-
   final Map<String, BridgeHandler> _handlers = {};
+
+  /// App→Web 脚本执行器（由 WebViewPage 注入，执行 runJavaScript）。
+  void Function(String script)? responseRunner;
+
+  /// 翻译实现（由外部注入 TranslateService）。
+  Future<String?> Function(String text)? translateHandler;
+
+  /// 离线采集完成回调（title, url, html）。
+  void Function(String title, String url, String html)? onOfflineCollected;
 
   JsBridge() {
     register('ping', (_) async => 'pong');
     register('getAppInfo', (_) async => {
-          'name': 'NewWeb',
-          'version': '0.1.0',
+          'name': '未来浏览器',
+          'version': '1.0.2',
           'platform': 'ios',
         });
   }
@@ -34,9 +40,6 @@ class JsBridge {
   }
 
   /// 创建 Web→App 消息回调，挂载到 [WebViewController.addJavaScriptChannel]。
-  ///
-  /// webview_flutter 4.14 起无 JavaScriptChannel 类，改为
-  /// `addJavaScriptChannel(name, onMessageReceived: ...)`。
   void Function(JavaScriptMessage) messageHandler() {
     return (JavaScriptMessage message) async {
       await _dispatch(message.message);
@@ -49,6 +52,23 @@ class JsBridge {
       msg = BridgeMessage.fromJson(raw);
     } catch (e) {
       debugPrint('[JsBridge] 非法消息: $e');
+      return;
+    }
+
+    // 特判：选中文本翻译（需要回传页面）
+    if (msg.action == 'translate') {
+      await _handleTranslate(msg);
+      return;
+    }
+
+    // 特判：离线采集完成
+    if (msg.action == 'offlineCollected') {
+      final payload = msg.payload;
+      onOfflineCollected?.call(
+        (payload['title'] ?? '离线页面') as String,
+        (payload['url'] ?? '') as String,
+        (payload['html'] ?? '') as String,
+      );
       return;
     }
 
@@ -65,28 +85,28 @@ class JsBridge {
     }
   }
 
-  /// App→Web：页面加载前注入的桥接脚本，建立页面侧 `window.__NEWWEB_BRIDGE__`。
-  static String injectScript() {
-    return r'''
-(function() {
-  if (window.__NEWWEB_BRIDGE__) return;
-  window.__NEWWEB_BRIDGE__ = {
-    postMessage: function(msg) {
-      try {
-        if (window.NativeBridge && window.NativeBridge.postMessage) {
-          window.NativeBridge.postMessage(JSON.stringify(msg));
-        }
-      } catch (e) { /* 静默 */ }
-    },
-    version: '0.1.0'
-  };
-})();
-''';
+  Future<void> _handleTranslate(BridgeMessage msg) async {
+    final text = (msg.payload['text'] ?? '') as String;
+    String? result;
+    try {
+      result = await translateHandler?.call(text);
+    } catch (e) {
+      debugPrint('[JsBridge] 翻译失败: $e');
+    }
+    final ok = result != null;
+    final script =
+        'window.__NEWWEB_TRANSLATE_RESULT__(${_jsString(msg.id)}, '
+        '$ok, ${_jsString(result ?? '翻译服务暂不可用')});';
+    responseRunner?.call(script);
   }
 
-  /// App→Web：构造回传调用（页面需实现 `window.__NEWWEB_NATIVE__(msg)`）。
-  static String buildResponseCall(BridgeResponse response) {
-    final json = jsonEncode(response.toJson());
-    return '$_responseTarget && $_responseTarget($json)';
+  /// 将字符串转为 JS 安全字面量。
+  static String _jsString(String value) {
+    final escaped = value
+        .replaceAll(r'\', r'\\')
+        .replaceAll("'", r"\'")
+        .replaceAll('\n', r'\n')
+        .replaceAll('\r', '');
+    return "'$escaped'";
   }
 }

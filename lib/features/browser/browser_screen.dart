@@ -1,8 +1,12 @@
 import 'package:flutter/material.dart';
 
 import '../../core/db/database_helper.dart';
+import '../../core/services/offline_service.dart';
+import '../../core/services/settings_service.dart';
 import 'bookmarks_page.dart';
 import 'history_page.dart';
+import 'offline_pages_page.dart';
+import 'settings_page.dart';
 import 'tab_manager.dart';
 import 'webview_page.dart';
 import 'widgets/address_bar.dart';
@@ -27,6 +31,7 @@ class _BrowserScreenState extends State<BrowserScreen> {
   double _progress = 0;
   bool _canGoBack = false;
   bool _canGoForward = false;
+  bool _incognito = false;
 
   @override
   void initState() {
@@ -36,6 +41,13 @@ class _BrowserScreenState extends State<BrowserScreen> {
     WidgetsBinding.instance.addPostFrameCallback((_) {
       DatabaseHelper.instance.initDefaultBookmarks();
     });
+    _loadIncognito();
+  }
+
+  Future<void> _loadIncognito() async {
+    final value = await SettingsService.instance.isIncognitoEnabled();
+    if (!mounted) return;
+    setState(() => _incognito = value);
   }
 
   @override
@@ -120,12 +132,19 @@ class _BrowserScreenState extends State<BrowserScreen> {
               onTap: () => _addBookmark(sheetContext),
             ),
             _sheetItem(
+              icon: Icons.download_outlined,
+              label: '保存离线页面',
+              onTap: () => _saveOffline(sheetContext),
+            ),
+            _sheetItem(
+              icon: Icons.offline_pin_outlined,
+              label: '离线页面',
+              onTap: () => _openOfflinePages(sheetContext),
+            ),
+            _sheetItem(
               icon: Icons.settings_outlined,
               label: '设置',
-              onTap: () {
-                Navigator.of(sheetContext).pop();
-                _showComingSoon('设置');
-              },
+              onTap: () => _openSettings(sheetContext),
             ),
             const SizedBox(height: 8),
           ],
@@ -197,16 +216,53 @@ class _BrowserScreenState extends State<BrowserScreen> {
       );
   }
 
-  void _showComingSoon(String feature) {
-    _showMessage('$feature 将在 M3 里程碑提供');
+  /// 保存离线页面：触发当前页采集，结果经 JS Bridge 回传后落盘。
+  void _saveOffline(BuildContext sheetContext) {
+    Navigator.of(sheetContext).pop();
+    final webView = _currentWebView();
+    if (webView == null) return;
+    _showMessage('正在保存离线页面…');
+    webView.saveOffline();
   }
 
-  /// 页面加载完成：更新标签元数据并写入历史。
+  void _saveOfflineCollected(String title, String url, String html) async {
+    try {
+      await OfflineService.instance.save(title, url, html);
+      if (!mounted) return;
+      _showMessage('离线页面已保存');
+    } catch (e) {
+      debugPrint('[Offline] 保存失败: $e');
+      if (!mounted) return;
+      _showMessage('离线保存失败');
+    }
+  }
+
+  void _openOfflinePages(BuildContext sheetContext) {
+    Navigator.of(sheetContext).pop();
+    Navigator.of(context)
+        .push<String>(MaterialPageRoute(builder: (_) => const OfflinePagesPage()))
+        .then((path) {
+      if (path != null && mounted) {
+        _currentWebView()?.loadFile(path);
+      }
+    });
+  }
+
+  void _openSettings(BuildContext sheetContext) {
+    Navigator.of(sheetContext).pop();
+    Navigator.of(context)
+        .push<void>(MaterialPageRoute(builder: (_) => const SettingsPage()))
+        .then((_) => _loadIncognito());
+  }
+
+  /// 页面加载完成：更新标签元数据并写入历史（无痕模式下不记录）。
   void _onPageFinished(String tabId, String url) {
     final tab = _tabManager.tabs.where((t) => t.id == tabId).firstOrNull;
     if (tab == null) return;
     _tabManager.updateTab(tabId, isLoading: false, url: url);
-    DatabaseHelper.instance.addHistory(tab.title, url);
+    if (!_incognito) {
+      DatabaseHelper.instance.addHistory(tab.title, url);
+    }
   }
 
   @override
@@ -224,6 +280,20 @@ class _BrowserScreenState extends State<BrowserScreen> {
                   onReload: () => _currentWebView()?.reload(),
                 ),
                 ProgressBar(progress: _progress),
+                if (_incognito)
+                  Container(
+                    width: double.infinity,
+                    color: const Color(0xFF1F2937),
+                    padding: const EdgeInsets.symmetric(vertical: 3),
+                    child: const Text(
+                      '无痕浏览中 · 不记录历史记录',
+                      textAlign: TextAlign.center,
+                      style: TextStyle(
+                        fontSize: 11,
+                        color: Colors.white70,
+                      ),
+                    ),
+                  ),
               ],
             ),
           ),
@@ -261,6 +331,7 @@ class _BrowserScreenState extends State<BrowserScreen> {
                         onTitleChanged: (title) {
                           _tabManager.updateTab(tabId, title: title);
                         },
+                        onOfflineCollected: _saveOfflineCollected,
                         onCanGoBackChanged: _onCanGoBackChanged,
                         onCanGoForwardChanged: _onCanGoForwardChanged,
                       );

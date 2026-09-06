@@ -4,9 +4,12 @@ import 'package:flutter/material.dart';
 import 'package:webview_flutter/webview_flutter.dart';
 
 import '../../core/bridge/js_bridge.dart';
+import '../../core/bridge/web_injections.dart';
 import '../../core/config/app_config.dart';
+import '../../core/services/settings_service.dart';
+import '../../core/services/translate_service.dart';
 
-/// WebView 容器页：封装加载、进度、历史状态、JS Bridge 注入。
+/// WebView 容器页：封装加载、进度、历史状态、JS Bridge 与功能脚本注入。
 /// 每个标签页一个实例（内部持有独立 WebViewController，随 widget 保活）。
 class WebViewPage extends StatefulWidget {
   const WebViewPage({
@@ -19,6 +22,7 @@ class WebViewPage extends StatefulWidget {
     this.onPageStarted,
     this.onPageFinished,
     this.onTitleChanged,
+    this.onOfflineCollected,
   });
 
   final ValueChanged<double> onProgress;
@@ -30,6 +34,9 @@ class WebViewPage extends StatefulWidget {
   final ValueChanged<String>? onPageFinished;
   final ValueChanged<String>? onTitleChanged;
 
+  /// 离线页面采集完成（title, url, html）。
+  final void Function(String title, String url, String html)? onOfflineCollected;
+
   @override
   State<WebViewPage> createState() => WebViewPageState();
 }
@@ -37,10 +44,31 @@ class WebViewPage extends StatefulWidget {
 class WebViewPageState extends State<WebViewPage> {
   late WebViewController _controller;
   final JsBridge _bridge = JsBridge();
+  bool _adBlockEnabled = false;
 
   @override
   void initState() {
     super.initState();
+
+    // 桥接响应执行器与业务注入
+    _bridge.responseRunner = (script) {
+      unawaited(
+        _controller.runJavaScript(script).catchError((Object e) {
+          debugPrint('[JsBridge] 回传失败: $e');
+        }),
+      );
+    };
+    _bridge.translateHandler = TranslateService.instance.translate;
+    _bridge.onOfflineCollected = (title, url, html) {
+      widget.onOfflineCollected?.call(title, url, html);
+    };
+
+    // 异步读取广告拦截开关
+    unawaited(
+      SettingsService.instance.isAdBlockEnabled().then((value) {
+        if (mounted) setState(() => _adBlockEnabled = value);
+      }),
+    );
 
     final controller = WebViewController();
     _controller = controller;
@@ -67,12 +95,12 @@ class WebViewPageState extends State<WebViewPage> {
             widget.onProgress(progress / 100);
           },
           onPageStarted: (String url) {
-            _injectBridge();
+            _injectFeatureScripts();
             _refreshHistoryState();
             widget.onPageStarted?.call(url);
           },
           onPageFinished: (String url) async {
-            _injectBridge();
+            _injectFeatureScripts();
             _refreshHistoryState();
             widget.onPageFinished?.call(url);
             final title = await controller.getTitle();
@@ -95,12 +123,20 @@ class WebViewPageState extends State<WebViewPage> {
     unawaited(controller.loadRequest(Uri.parse(widget.initialUrl)));
   }
 
-  void _injectBridge() {
-    unawaited(
-      _controller.runJavaScript(JsBridge.injectScript()).catchError(
-        (Object e) => debugPrint('[WebView] 桥接注入失败: $e'),
-      ),
-    );
+  /// 注入功能脚本（翻译 / 离线采集 / 广告拦截）。
+  void _injectFeatureScripts() {
+    final scripts = [
+      WebInjections.selectionTranslateScript(),
+      WebInjections.collectOfflineScript(),
+      if (_adBlockEnabled) WebInjections.adBlockScript(),
+    ];
+    for (final script in scripts) {
+      unawaited(
+        _controller.runJavaScript(script).catchError((Object e) {
+          debugPrint('[WebView] 脚本注入失败: $e');
+        }),
+      );
+    }
   }
 
   Future<void> _refreshHistoryState() async {
@@ -124,7 +160,12 @@ class WebViewPageState extends State<WebViewPage> {
   // ---- 供 BrowserScreen 调用的导航操作 ----
 
   Future<void> load(String input) async {
-    await _controller.loadRequest(AppConfig.normalizeInput(input));
+    final engine = await SettingsService.instance.getSearchEngine();
+    final uri = AppConfig.normalizeInput(
+      input,
+      searchUrl: SettingsService.searchUrlOf(engine),
+    );
+    await _controller.loadRequest(uri);
   }
 
   Future<void> goBack() async {
@@ -145,6 +186,19 @@ class WebViewPageState extends State<WebViewPage> {
 
   Future<void> goHome() async {
     await _controller.loadRequest(Uri.parse(AppConfig.homeUrl));
+  }
+
+  /// 保存离线页面：触发页面采集（完成后经 JS Bridge 回传）。
+  Future<void> saveOffline() async {
+    await _controller.runJavaScript(WebInjections.collectOfflineScript());
+    await _controller.runJavaScript(
+      'window.__NEWWEB_COLLECT__ && window.__NEWWEB_COLLECT__();',
+    );
+  }
+
+  /// 加载本地 HTML 文件（离线页面）。
+  Future<void> loadFile(String path) async {
+    await _controller.loadFile(path);
   }
 
   @override

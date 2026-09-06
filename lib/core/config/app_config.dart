@@ -25,8 +25,8 @@ class AppConfig {
   /// - 空输入 → 首页
   /// - 带 http(s):// → 原样
   /// - 形如域名 → 补 https://
-  /// - 其余 → 走默认搜索引擎
-  static Uri normalizeInput(String input) {
+  /// - 其余 → 走搜索引擎（默认百度，可由设置切换）
+  static Uri normalizeInput(String input, {String searchUrl = AppConfig.searchUrl}) {
     final text = input.trim();
     if (text.isEmpty) return Uri.parse(homeUrl);
 
