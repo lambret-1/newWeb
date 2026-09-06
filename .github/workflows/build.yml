@@ -1,0 +1,148 @@
+name: Build iOS IPA
+
+on:
+  push:
+    branches: [ main, master ]
+    tags: [ 'v*' ]
+  workflow_dispatch:
+
+env:
+  APP_NAME: NewWeb
+  SCHEME: Runner
+  FLUTTER_VERSION: '3.47.2'
+  BUNDLE_ID: com.newweb.newweb
+
+jobs:
+  build:
+    name: Build IPA
+    runs-on: macos-latest
+    timeout-minutes: 45
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Detect signing certificate
+        id: detect
+        env:
+          IOS_CERTIFICATE: ${{ secrets.IOS_CERTIFICATE }}
+        run: |
+          if [ -n "$IOS_CERTIFICATE" ]; then
+            echo "has_cert=true" >> $GITHUB_OUTPUT
+            echo "检测到签名证书，将使用签名模式构建"
+          else
+            echo "has_cert=false" >> $GITHUB_OUTPUT
+            echo "未检测到签名证书，将使用无签名模式构建"
+          fi
+
+      - name: Setup Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          flutter-version: ${{ env.FLUTTER_VERSION }}
+          cache: true
+
+      - name: Flutter version
+        run: flutter --version
+
+      - name: Install dependencies
+        run: |
+          flutter pub get
+          cd ios && pod install --repo-update || pod install
+
+      # ============================================================
+      # 签名模式：安装证书与描述文件
+      # ============================================================
+      - name: Install Apple certificate
+        if: steps.detect.outputs.has_cert == 'true'
+        env:
+          IOS_CERTIFICATE: ${{ secrets.IOS_CERTIFICATE }}
+          IOS_CERTIFICATE_PWD: ${{ secrets.IOS_CERTIFICATE_PWD }}
+          KEYCHAIN_PASSWORD: ${{ secrets.KEYCHAIN_PASSWORD }}
+        run: |
+          security create-keychain -p "$KEYCHAIN_PASSWORD" build.keychain
+          security default-keychain -s build.keychain
+          security unlock-keychain -p "$KEYCHAIN_PASSWORD" build.keychain
+          security set-keychain-settings -t 3600 -l build.keychain
+          echo "$IOS_CERTIFICATE" | base64 -d > certificate.p12
+          security import certificate.p12 -k build.keychain -P "$IOS_CERTIFICATE_PWD" -T /usr/bin/codesign
+          security set-key-partition-list -S apple-tool:,apple:,codesign: -s -k "$KEYCHAIN_PASSWORD" build.keychain
+          rm -f certificate.p12
+
+      - name: Install provisioning profile
+        if: steps.detect.outputs.has_cert == 'true'
+        env:
+          IOS_PROVISION_PROFILE: ${{ secrets.IOS_PROVISION_PROFILE }}
+        run: |
+          mkdir -p ~/Library/MobileDevice/Provisioning\ Profiles
+          echo "$IOS_PROVISION_PROFILE" | base64 -d > profile.mobileprovision
+          security cms -D -i profile.mobileprovision -o profile.plist
+          UUID=$(/usr/libexec/PlistBuddy -c "Print :UUID" profile.plist)
+          cp profile.mobileprovision ~/Library/MobileDevice/Provisioning\ Profiles/$UUID.mobileprovision
+          # 提取 entitlements 供 codesign 使用
+          /usr/libexec/PlistBuddy -x -c "Print :Entitlements" profile.plist > entitlements.plist
+          TEAM_ID=$(/usr/libexec/PlistBuddy -c "Print :TeamIdentifier:0" profile.plist)
+          echo "Provisioning profile UUID: $UUID"
+          echo "Team ID: $TEAM_ID"
+          rm -f profile.mobileprovision profile.plist
+
+      # ============================================================
+      # 编译（两种模式共用：先无签名编译）
+      # ============================================================
+      - name: Build (flutter build ios)
+        run: flutter build ios --release --no-codesign
+
+      - name: Sign app (signed mode)
+        if: steps.detect.outputs.has_cert == 'true'
+        run: |
+          APP_PATH="build/ios/iphoneos/Runner.app"
+          if [ ! -d "$APP_PATH" ]; then
+            echo "::error::App not found at $APP_PATH"
+            exit 1
+          fi
+          chmod +x "$APP_PATH/Runner"
+          cp entitlements.plist "$APP_PATH/entitlements.plist"
+          cp ~/Library/MobileDevice/Provisioning\ Profiles/*.mobileprovision "$APP_PATH/embedded.mobileprovision"
+          IDENTITY=$(security find-identity -v -p codesigning build.keychain | grep -o 'iPhone [^"]*' | head -1)
+          if [ -z "$IDENTITY" ]; then
+            echo "::error::No iPhone signing identity found in keychain"
+            exit 1
+          fi
+          echo "Using identity: $IDENTITY"
+          codesign --force --sign "$IDENTITY" --entitlements "$APP_PATH/entitlements.plist" "$APP_PATH"
+          codesign --verify --deep --strict "$APP_PATH" || true
+          rm -f "$APP_PATH/entitlements.plist"
+
+      - name: Ad-hoc sign (unsigned mode)
+        if: steps.detect.outputs.has_cert == 'false'
+        run: |
+          APP_PATH="build/ios/iphoneos/Runner.app"
+          if [ ! -d "$APP_PATH" ]; then
+            echo "::error::App not found at $APP_PATH"
+            exit 1
+          fi
+          chmod +x "$APP_PATH/Runner"
+          codesign --force --sign - --generate-entitlement-der "$APP_PATH" 2>&1 || true
+          echo "=== _CodeSignature ==="
+          ls -la "$APP_PATH/_CodeSignature/" 2>/dev/null || echo "无 _CodeSignature"
+
+      - name: Package IPA
+        run: |
+          APP_PATH="build/ios/iphoneos/Runner.app"
+          if [ ! -d "$APP_PATH" ]; then
+            echo "::error::App not found at $APP_PATH"
+            ls -la build/ios/iphoneos/ || true
+            exit 1
+          fi
+          mkdir -p Payload
+          cp -R "$APP_PATH" Payload/
+          zip -qr "${APP_NAME}.ipa" Payload
+          rm -rf Payload
+          ls -lh "${APP_NAME}.ipa"
+
+      - name: Upload IPA
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ env.APP_NAME }}-${{ steps.detect.outputs.has_cert == 'true' && 'signed' || 'unsigned' }}-ipa
+          path: ${{ env.APP_NAME }}.ipa
+          retention-days: 90
