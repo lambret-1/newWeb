@@ -12,6 +12,8 @@ import UIKit
 
   func didInitializeImplicitFlutterEngine(_ engineBridge: FlutterImplicitEngineBridge) {
     GeneratedPluginRegistrant.register(with: engineBridge.pluginRegistry)
-    NativeBridgePlugin.register(with: engineBridge.pluginRegistry.registrar(forPlugin: "NativeBridgePlugin"))
+    if let registrar = engineBridge.pluginRegistry.registrar(forPlugin: "NativeBridgePlugin") {
+      NativeBridgePlugin.register(with: registrar)
+    }
   }
 }

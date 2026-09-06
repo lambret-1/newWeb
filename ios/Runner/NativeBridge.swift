@@ -41,7 +41,10 @@ public class NativeBridgePlugin: NSObject, FlutterPlugin {
   private func getCacheSize(result: @escaping FlutterResult) {
     let store = WKWebsiteDataStore.default()
     store.fetchDataRecords(ofTypes: WKWebsiteDataStore.allWebsiteDataTypes()) { records in
-      let total = records.reduce(0) { $0 + ($1.sizeInBytes > 0 ? $1.sizeInBytes : 0) }
+      var total: Int64 = 0
+      for record in records {
+        total += record.sizeInBytes
+      }
       result(Int(total))
     }
   }
