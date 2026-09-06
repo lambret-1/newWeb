@@ -9,6 +9,7 @@ import '../../core/services/offline_service.dart';
 import '../../core/services/settings_service.dart';
 import '../../native/native_bridge.dart';
 import 'bookmarks_page.dart';
+import 'cache_manager_page.dart';
 import 'download_page.dart';
 import 'history_page.dart';
 import 'offline_pages_page.dart';
@@ -139,62 +140,70 @@ class _BrowserScreenState extends State<BrowserScreen> {
     FocusScope.of(context).unfocus();
     showModalBottomSheet<void>(
       context: context,
+      isScrollControlled: true,
       backgroundColor: Colors.white,
       shape: const RoundedRectangleBorder(
         borderRadius: BorderRadius.vertical(top: Radius.circular(16)),
       ),
       builder: (sheetContext) => SafeArea(
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            const SizedBox(height: 8),
-            _sheetItem(
-              icon: Icons.bookmark_border,
-              label: '书签',
-              onTap: () => _openBookmarks(sheetContext),
-            ),
-            _sheetItem(
-              icon: Icons.history,
-              label: '历史记录',
-              onTap: () => _openHistory(sheetContext),
-            ),
-            _sheetItem(
-              icon: Icons.add,
-              label: '添加到书签',
-              onTap: () => _addBookmark(sheetContext),
-            ),
-            _sheetItem(
-              icon: Icons.translate,
-              label: '翻译此页',
-              onTap: () => _translatePageFromSheet(sheetContext),
-            ),
-            _sheetItem(
-              icon: Icons.menu_book_outlined,
-              label: '阅读模式',
-              onTap: () => _openReader(sheetContext),
-            ),
-            _sheetItem(
-              icon: Icons.download_outlined,
-              label: '保存离线页面',
-              onTap: () => _saveOffline(sheetContext),
-            ),
-            _sheetItem(
-              icon: Icons.offline_pin_outlined,
-              label: '离线页面',
-              onTap: () => _openOfflinePages(sheetContext),
-            ),
-            _sheetItem(
-              icon: Icons.file_download_outlined,
-              label: '下载管理',
-              onTap: () => _openDownloads(sheetContext),
-            ),
-            _sheetItem(
-              icon: Icons.settings_outlined,
-              label: '设置',
-              onTap: () => _openSettings(sheetContext),
-            ),
-            const SizedBox(height: 8),
-          ],
+        child: SingleChildScrollView(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              const SizedBox(height: 8),
+              _sheetItem(
+                icon: Icons.bookmark_border,
+                label: '书签',
+                onTap: () => _openBookmarks(sheetContext),
+              ),
+              _sheetItem(
+                icon: Icons.history,
+                label: '历史记录',
+                onTap: () => _openHistory(sheetContext),
+              ),
+              _sheetItem(
+                icon: Icons.add,
+                label: '添加到书签',
+                onTap: () => _addBookmark(sheetContext),
+              ),
+              _sheetItem(
+                icon: Icons.translate,
+                label: '翻译此页',
+                onTap: () => _translatePageFromSheet(sheetContext),
+              ),
+              _sheetItem(
+                icon: Icons.menu_book_outlined,
+                label: '阅读模式',
+                onTap: () => _openReader(sheetContext),
+              ),
+              _sheetItem(
+                icon: Icons.download_outlined,
+                label: '保存离线页面',
+                onTap: () => _saveOffline(sheetContext),
+              ),
+              _sheetItem(
+                icon: Icons.offline_pin_outlined,
+                label: '离线页面',
+                onTap: () => _openOfflinePages(sheetContext),
+              ),
+              _sheetItem(
+                icon: Icons.file_download_outlined,
+                label: '下载管理',
+                onTap: () => _openDownloads(sheetContext),
+              ),
+              _sheetItem(
+                icon: Icons.cleaning_services_outlined,
+                label: '缓存管理',
+                onTap: () => _openCacheManager(sheetContext),
+              ),
+              _sheetItem(
+                icon: Icons.settings_outlined,
+                label: '设置',
+                onTap: () => _openSettings(sheetContext),
+              ),
+              const SizedBox(height: 8),
+            ],
+          ),
         ),
       ),
     );
@@ -351,6 +360,12 @@ class _BrowserScreenState extends State<BrowserScreen> {
     Navigator.of(sheetContext).pop();
     Navigator.of(context)
         .push<void>(MaterialPageRoute(builder: (_) => const DownloadPage()));
+  }
+
+  void _openCacheManager(BuildContext sheetContext) {
+    Navigator.of(sheetContext).pop();
+    Navigator.of(context)
+        .push<void>(MaterialPageRoute(builder: (_) => const CacheManagerPage()));
   }
 
   /// 页面加载完成：更新标签元数据并写入历史（无痕模式下不记录）。
