@@ -7,8 +7,7 @@ import '../../core/bridge/js_bridge.dart';
 import '../../core/config/app_config.dart';
 
 /// WebView 容器页：封装加载、进度、历史状态、JS Bridge 注入。
-///
-/// M1：单标签；M2 升级为多标签实例池并接入手势导航/下拉刷新。
+/// 每个标签页一个实例（内部持有独立 WebViewController，随 widget 保活）。
 class WebViewPage extends StatefulWidget {
   const WebViewPage({
     super.key,
@@ -16,12 +15,20 @@ class WebViewPage extends StatefulWidget {
     required this.onUrlChanged,
     required this.onCanGoBackChanged,
     required this.onCanGoForwardChanged,
+    this.initialUrl = AppConfig.homeUrl,
+    this.onPageStarted,
+    this.onPageFinished,
+    this.onTitleChanged,
   });
 
   final ValueChanged<double> onProgress;
   final ValueChanged<String?> onUrlChanged;
   final ValueChanged<bool> onCanGoBackChanged;
   final ValueChanged<bool> onCanGoForwardChanged;
+  final String initialUrl;
+  final ValueChanged<String>? onPageStarted;
+  final ValueChanged<String>? onPageFinished;
+  final ValueChanged<String>? onTitleChanged;
 
   @override
   State<WebViewPage> createState() => WebViewPageState();
@@ -62,10 +69,16 @@ class WebViewPageState extends State<WebViewPage> {
           onPageStarted: (String url) {
             _injectBridge();
             _refreshHistoryState();
+            widget.onPageStarted?.call(url);
           },
-          onPageFinished: (String url) {
+          onPageFinished: (String url) async {
             _injectBridge();
             _refreshHistoryState();
+            widget.onPageFinished?.call(url);
+            final title = await controller.getTitle();
+            if (title != null && title.isNotEmpty) {
+              widget.onTitleChanged?.call(title);
+            }
           },
           onUrlChange: (UrlChange change) {
             widget.onUrlChanged(change.url?.toString());
@@ -74,16 +87,14 @@ class WebViewPageState extends State<WebViewPage> {
             debugPrint('[WebView] 资源错误 ${error.url}: ${error.description}');
           },
           onNavigationRequest: (NavigationRequest request) {
-            // 新窗口 / 外部链接一律在当前 WebView 打开
             return NavigationDecision.navigate;
           },
         ),
       ),
     );
-    unawaited(controller.loadRequest(Uri.parse(AppConfig.homeUrl)));
+    unawaited(controller.loadRequest(Uri.parse(widget.initialUrl)));
   }
 
-  /// 注入桥接脚本（页面加载前/后各执行一次，幂等）。
   void _injectBridge() {
     unawaited(
       _controller.runJavaScript(JsBridge.injectScript()).catchError(
@@ -98,6 +109,16 @@ class WebViewPageState extends State<WebViewPage> {
     if (!mounted) return;
     widget.onCanGoBackChanged(back);
     widget.onCanGoForwardChanged(forward);
+  }
+
+  /// 查询页面是否在顶部（用于下拉刷新判定）。
+  Future<bool> isAtTop() async {
+    try {
+      final offset = await _controller.getScrollPosition();
+      return offset.dy <= 1;
+    } catch (_) {
+      return true;
+    }
   }
 
   // ---- 供 BrowserScreen 调用的导航操作 ----

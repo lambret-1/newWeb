@@ -1,6 +1,6 @@
 import 'package:flutter/material.dart';
 
-/// 底部工具栏：后退 / 前进 / 首页 / 标签页（M2）/ 更多（M2）。
+/// 底部工具栏：后退 / 前进 / 首页 / 标签页 / 更多。
 class ToolBar extends StatelessWidget {
   const ToolBar({
     super.key,
@@ -9,7 +9,8 @@ class ToolBar extends StatelessWidget {
     required this.onBack,
     required this.onForward,
     required this.onHome,
-    required this.onComingSoon,
+    required this.onTabs,
+    required this.onMore,
   });
 
   final bool canGoBack;
@@ -17,7 +18,8 @@ class ToolBar extends StatelessWidget {
   final VoidCallback onBack;
   final VoidCallback onForward;
   final VoidCallback onHome;
-  final VoidCallback onComingSoon;
+  final VoidCallback onTabs;
+  final VoidCallback onMore;
 
   @override
   Widget build(BuildContext context) {
@@ -57,17 +59,17 @@ class ToolBar extends StatelessWidget {
             ),
             IconButton(
               iconSize: 22,
-              onPressed: onComingSoon,
+              onPressed: onTabs,
               icon: const Icon(Icons.tab_outlined),
               color: enabledColor,
-              tooltip: '标签页（M2）',
+              tooltip: '标签页',
             ),
             IconButton(
               iconSize: 22,
-              onPressed: onComingSoon,
+              onPressed: onMore,
               icon: const Icon(Icons.more_horiz),
               color: enabledColor,
-              tooltip: '更多（M2）',
+              tooltip: '更多',
             ),
           ],
         ),
