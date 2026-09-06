@@ -123,8 +123,8 @@ class WebViewPageState extends State<WebViewPage> {
           onNavigationRequest: (NavigationRequest request) {
             final url = request.url;
             if (request.isMainFrame && _isDownloadUrl(url)) {
-              debugPrint('[WebView] 接管下载链接: $url');
-              DownloadService.instance.start(url);
+              debugPrint('[WebView] 检测到下载链接: $url');
+              _confirmStartDownload(url);
               return NavigationDecision.prevent;
             }
             return NavigationDecision.navigate;
@@ -248,6 +248,35 @@ class WebViewPageState extends State<WebViewPage> {
     if (uri == null) return false;
     final path = uri.path.toLowerCase();
     return _downloadExtensions.any(path.endsWith);
+  }
+
+  /// 下载前弹窗确认，确认后开始原生下载。
+  Future<void> _confirmStartDownload(String url) async {
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        title: const Text('开始下载？'),
+        content: Text(
+          url,
+          maxLines: 3,
+          overflow: TextOverflow.ellipsis,
+          style: const TextStyle(fontSize: 13, color: Color(0xFF6B7280)),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(dialogContext).pop(false),
+            child: const Text('取消'),
+          ),
+          TextButton(
+            onPressed: () => Navigator.of(dialogContext).pop(true),
+            child: const Text('下载'),
+          ),
+        ],
+      ),
+    );
+    if (confirmed == true) {
+      DownloadService.instance.start(url);
+    }
   }
 
   /// 手动翻译当前页；若已翻译则恢复原文。返回操作类型。

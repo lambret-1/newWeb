@@ -73,13 +73,42 @@ class _BrowserScreenState extends State<BrowserScreen> {
         case 'download':
           final url = e['url'] as String? ?? '';
           if (url.isNotEmpty) {
-            DownloadService.instance.start(url);
-            _showMessage('已开始下载');
+            _confirmDownload(url);
           }
       }
     }, onError: (Object e) {
       debugPrint('[Browser] 原生事件错误: $e');
     });
+  }
+
+  /// 下载前确认弹窗。
+  Future<void> _confirmDownload(String url) async {
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        title: const Text('开始下载？'),
+        content: Text(
+          url,
+          maxLines: 3,
+          overflow: TextOverflow.ellipsis,
+          style: const TextStyle(fontSize: 13, color: Color(0xFF6B7280)),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(dialogContext).pop(false),
+            child: const Text('取消'),
+          ),
+          TextButton(
+            onPressed: () => Navigator.of(dialogContext).pop(true),
+            child: const Text('下载'),
+          ),
+        ],
+      ),
+    );
+    if (confirmed == true) {
+      DownloadService.instance.start(url);
+      _showMessage('已开始下载');
+    }
   }
 
   @override
@@ -132,6 +161,7 @@ class _BrowserScreenState extends State<BrowserScreen> {
         .then((selectedTabId) {
           if (selectedTabId != null && mounted) {
             _tabManager.switchTab(selectedTabId);
+            _refreshSnapshot();
           }
         });
   }
@@ -376,6 +406,20 @@ class _BrowserScreenState extends State<BrowserScreen> {
     if (!_incognito) {
       DatabaseHelper.instance.addHistory(tab.title, url);
     }
+    _refreshSnapshot();
+  }
+
+  /// 截取当前激活标签的最后浏览快照。
+  Future<void> _refreshSnapshot() async {
+    final active = _tabManager.activeTab;
+    if (active == null) return;
+    final shot = await NativeBridge.captureVisibleWebView();
+    if (!mounted) return;
+    if (shot == null) return;
+    final current = _tabManager.activeTab;
+    if (current == null || current.id != active.id) return;
+    current.snapshot = shot;
+    _tabManager.notifySnapshotUpdated();
   }
 
   @override

@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:convert';
 
 import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart';
@@ -92,6 +93,19 @@ class NativeBridge {
 
   static Future<void> previewFile(String path) async {
     await invoke('previewFile', {'path': path});
+  }
+
+  /// 截取当前可见 WKWebView 快照，返回 PNG 字节；失败返回 null。
+  static Future<Uint8List?> captureVisibleWebView() async {
+    final value = await invoke('captureVisibleWebView');
+    if (value is! Map) return null;
+    final png = value['png'] as String?;
+    if (png == null) return null;
+    try {
+      return base64Decode(png);
+    } catch (_) {
+      return null;
+    }
   }
 
   /// 生成 AdGuard DNS 配置描述文件，返回文件路径。

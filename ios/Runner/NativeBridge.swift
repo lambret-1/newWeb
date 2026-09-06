@@ -72,6 +72,8 @@ public class NativeBridgePlugin: NSObject, FlutterPlugin, QLPreviewControllerDat
     case "previewFile":
       previewFile(path: args["path"] as? String ?? "")
       result(true)
+    case "captureVisibleWebView":
+      captureVisibleWebView(result: result)
     case "clearWebDataTypes":
       let types = args["types"] as? [String] ?? []
       clearWebDataTypes(types, result: result)
@@ -218,6 +220,47 @@ public class NativeBridgePlugin: NSObject, FlutterPlugin, QLPreviewControllerDat
       return topViewController(base: presented)
     }
     return root
+  }
+
+  // MARK: - 标签快照（截取当前可见 WKWebView）
+
+  /// 截取当前可见 WKWebView（即当前激活标签），返回 {png: base64, url}。
+  private func captureVisibleWebView(result: @escaping FlutterResult) {
+    guard let webView = findVisibleWebView() else {
+      result(nil)
+      return
+    }
+    webView.takeSnapshot(with: nil) { image, error in
+      guard let image = image, error == nil, let data = image.pngData() else {
+        result(nil)
+        return
+      }
+      result([
+        "png": data.base64EncodedString(),
+        "url": webView.url?.absoluteString ?? "",
+      ])
+    }
+  }
+
+  /// 遍历所有窗口查找可见（未被 Offstage 隐藏）的 WKWebView。
+  private func findVisibleWebView() -> WKWebView? {
+    for window in UIApplication.shared.windows {
+      if let found = visibleWebView(in: window) { return found }
+    }
+    return nil
+  }
+
+  private func visibleWebView(in view: UIView) -> WKWebView? {
+    if let wv = view as? WKWebView {
+      if !wv.isHidden && wv.frame.width > 1 && wv.alpha > 0.5 {
+        return wv
+      }
+      return nil
+    }
+    for sub in view.subviews {
+      if let found = visibleWebView(in: sub) { return found }
+    }
+    return nil
   }
 
   // MARK: - DNS 描述文件（AdGuard DNS）

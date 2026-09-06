@@ -1,3 +1,4 @@
+
 import 'package:flutter/foundation.dart';
 
 /// 浏览器标签元数据（WebViewController 由各 WebViewPage 内部持有）。
@@ -8,6 +9,9 @@ class BrowserTab {
   String url;
   String title = '新标签页';
   bool isLoading = false;
+
+  /// 最后浏览快照（PNG 字节），标签切换页展示。
+  Uint8List? snapshot;
 }
 
 /// 多标签管理器：维护标签列表与当前激活标签。
@@ -65,4 +69,7 @@ class TabManager extends ChangeNotifier {
     if (isLoading != null) tab.isLoading = isLoading;
     notifyListeners();
   }
+
+  /// 快照已更新（数据由调用方写入 BrowserTab.snapshot）。
+  void notifySnapshotUpdated() => notifyListeners();
 }

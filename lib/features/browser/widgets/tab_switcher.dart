@@ -2,7 +2,7 @@ import 'package:flutter/material.dart';
 
 import '../tab_manager.dart';
 
-/// 标签切换页：网格展示所有标签，支持切换 / 关闭 / 新建。
+/// 标签切换页：网格展示所有标签（含最后浏览快照），支持切换 / 关闭 / 新建。
 class TabSwitcherPage extends StatelessWidget {
   const TabSwitcherPage({
     super.key,
@@ -50,7 +50,7 @@ class TabSwitcherPage extends StatelessWidget {
                     maxCrossAxisExtent: 200,
                     mainAxisSpacing: 12,
                     crossAxisSpacing: 12,
-                    childAspectRatio: 0.82,
+                    childAspectRatio: 0.72,
                   ),
                   itemCount: manager.tabs.length,
                   itemBuilder: (context, index) {
@@ -92,48 +92,97 @@ class _TabCard extends StatelessWidget {
         borderRadius: BorderRadius.circular(14),
         onTap: onTap,
         child: Padding(
-          padding: const EdgeInsets.all(10),
+          padding: const EdgeInsets.all(8),
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              Row(
-                children: [
-                  Container(
-                    width: 26,
-                    height: 26,
-                    alignment: Alignment.center,
-                    decoration: BoxDecoration(
-                      color: const Color(0xFF3B82F6),
-                      borderRadius: BorderRadius.circular(7),
-                    ),
-                    child: Text(
-                      _initial(tab.title),
-                      style: const TextStyle(
-                        color: Colors.white,
-                        fontSize: 13,
-                        fontWeight: FontWeight.w600,
+              Expanded(
+                child: Stack(
+                  children: [
+                    Positioned.fill(
+                      child: ClipRRect(
+                        borderRadius: BorderRadius.circular(10),
+                        child: tab.snapshot != null
+                            ? Image.memory(
+                                tab.snapshot!,
+                                fit: BoxFit.cover,
+                                width: double.infinity,
+                                gaplessPlayback: true,
+                              )
+                            : Container(
+                                color: const Color(0xFFEFF4FF),
+                                child: Center(
+                                  child: Column(
+                                    mainAxisSize: MainAxisSize.min,
+                                    children: [
+                                      const Icon(
+                                        Icons.public,
+                                        size: 30,
+                                        color: Color(0xFFB6C2D9),
+                                      ),
+                                      const SizedBox(height: 6),
+                                      Text(
+                                        _initial(tab.title),
+                                        style: const TextStyle(
+                                          fontSize: 15,
+                                          fontWeight: FontWeight.w700,
+                                          color: Color(0xFF3B82F6),
+                                        ),
+                                      ),
+                                    ],
+                                  ),
+                                ),
+                              ),
                       ),
                     ),
-                  ),
-                  const Spacer(),
-                  GestureDetector(
-                    onTap: onClose,
-                    behavior: HitTestBehavior.opaque,
-                    child: const Padding(
-                      padding: EdgeInsets.all(4),
-                      child: Icon(
-                        Icons.close,
-                        size: 18,
-                        color: Color(0xFF9CA3AF),
+                    Positioned(
+                      top: 4,
+                      right: 4,
+                      child: GestureDetector(
+                        onTap: onClose,
+                        behavior: HitTestBehavior.opaque,
+                        child: Container(
+                          padding: const EdgeInsets.all(3),
+                          decoration: BoxDecoration(
+                            color: Colors.black.withValues(alpha: 0.35),
+                            shape: BoxShape.circle,
+                          ),
+                          child: const Icon(
+                            Icons.close,
+                            size: 15,
+                            color: Colors.white,
+                          ),
+                        ),
                       ),
                     ),
-                  ),
-                ],
+                    if (active)
+                      Positioned(
+                        left: 4,
+                        bottom: 4,
+                        child: Container(
+                          padding: const EdgeInsets.symmetric(
+                              horizontal: 6, vertical: 2),
+                          decoration: BoxDecoration(
+                            color: const Color(0xFF3B82F6),
+                            borderRadius: BorderRadius.circular(6),
+                          ),
+                          child: const Text(
+                            '当前',
+                            style: TextStyle(
+                              fontSize: 10,
+                              color: Colors.white,
+                              fontWeight: FontWeight.w600,
+                            ),
+                          ),
+                        ),
+                      ),
+                  ],
+                ),
               ),
-              const SizedBox(height: 10),
+              const SizedBox(height: 8),
               Text(
                 tab.title,
-                maxLines: 2,
+                maxLines: 1,
                 overflow: TextOverflow.ellipsis,
                 style: const TextStyle(
                   fontSize: 13,
@@ -141,7 +190,7 @@ class _TabCard extends StatelessWidget {
                   color: Color(0xFF1F2937),
                 ),
               ),
-              const SizedBox(height: 4),
+              const SizedBox(height: 3),
               Text(
                 tab.url,
                 maxLines: 1,
