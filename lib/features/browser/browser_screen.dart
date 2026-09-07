@@ -284,24 +284,59 @@ class _BrowserScreenState extends State<BrowserScreen> {
       isScrollControlled: true,
       backgroundColor: Colors.white,
       shape: const RoundedRectangleBorder(
-        borderRadius: BorderRadius.vertical(top: Radius.circular(16)),
+        borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
       ),
       builder: (sheetContext) => SafeArea(
         child: SingleChildScrollView(
           child: Column(
             mainAxisSize: MainAxisSize.min,
             children: [
+              // 顶部拖拽横条
               const SizedBox(height: 8),
-              _sheetItem(
-                icon: Icons.bookmark_border,
-                label: '书签',
-                onTap: () => _openBookmarks(sheetContext),
+              Center(
+                child: Container(
+                  width: 36,
+                  height: 5,
+                  decoration: BoxDecoration(
+                    color: const Color(0xFFD1D5DB),
+                    borderRadius: BorderRadius.circular(3),
+                  ),
+                ),
               ),
-              _sheetItem(
-                icon: Icons.history,
-                label: '历史记录',
-                onTap: () => _openHistory(sheetContext),
+              const SizedBox(height: 12),
+              // 第一段：常用功能网格（4列）
+              Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 16),
+                child: Row(
+                  mainAxisAlignment: MainAxisAlignment.spaceAround,
+                  children: [
+                    _gridItem(
+                      icon: Icons.bookmark_border,
+                      label: '书签',
+                      onTap: () => _openBookmarks(sheetContext),
+                    ),
+                    _gridItem(
+                      icon: Icons.history,
+                      label: '历史',
+                      onTap: () => _openHistory(sheetContext),
+                    ),
+                    _gridItem(
+                      icon: Icons.file_download_outlined,
+                      label: '下载',
+                      onTap: () => _openDownloads(sheetContext),
+                    ),
+                    _gridItem(
+                      icon: Icons.offline_pin_outlined,
+                      label: '离线',
+                      onTap: () => _openOfflinePages(sheetContext),
+                    ),
+                  ],
+                ),
               ),
+              const SizedBox(height: 16),
+              const Divider(height: 1, color: Color(0xFFF0F0F0)),
+              // 第二段：网页操作
+              _sectionTitle('网页操作'),
               _sheetItem(
                 icon: Icons.add,
                 label: '添加到书签',
@@ -322,16 +357,9 @@ class _BrowserScreenState extends State<BrowserScreen> {
                 label: '保存离线页面',
                 onTap: () => _saveOffline(sheetContext),
               ),
-              _sheetItem(
-                icon: Icons.offline_pin_outlined,
-                label: '离线页面',
-                onTap: () => _openOfflinePages(sheetContext),
-              ),
-              _sheetItem(
-                icon: Icons.file_download_outlined,
-                label: '下载管理',
-                onTap: () => _openDownloads(sheetContext),
-              ),
+              const Divider(height: 1, color: Color(0xFFF0F0F0)),
+              // 第三段：其他
+              _sectionTitle('其他'),
               _sheetItem(
                 icon: Icons.cleaning_services_outlined,
                 label: '缓存管理',
@@ -350,6 +378,54 @@ class _BrowserScreenState extends State<BrowserScreen> {
     );
   }
 
+  Widget _sectionTitle(String title) {
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(20, 12, 16, 4),
+      child: Align(
+        alignment: Alignment.centerLeft,
+        child: Text(
+          title,
+          style: const TextStyle(
+            fontSize: 12,
+            color: Color(0xFF9CA3AF),
+            fontWeight: FontWeight.w500,
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _gridItem({
+    required IconData icon,
+    required String label,
+    required VoidCallback onTap,
+  }) {
+    return GestureDetector(
+      onTap: onTap,
+      behavior: HitTestBehavior.opaque,
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Container(
+            width: 48,
+            height: 48,
+            alignment: Alignment.center,
+            decoration: BoxDecoration(
+              color: const Color(0xFFF5F6F8),
+              borderRadius: BorderRadius.circular(14),
+            ),
+            child: Icon(icon, size: 24, color: const Color(0xFF007AFF)),
+          ),
+          const SizedBox(height: 6),
+          Text(
+            label,
+            style: const TextStyle(fontSize: 11, color: Color(0xFF374151)),
+          ),
+        ],
+      ),
+    );
+  }
+
   Widget _sheetItem({
     required IconData icon,
     required String label,
@@ -358,6 +434,7 @@ class _BrowserScreenState extends State<BrowserScreen> {
     return ListTile(
       leading: Icon(icon, size: 22, color: const Color(0xFF374151)),
       title: Text(label, style: const TextStyle(fontSize: 15)),
+      trailing: const Icon(Icons.chevron_right, size: 18, color: Color(0xFFC7C7CC)),
       onTap: onTap,
     );
   }

@@ -124,7 +124,7 @@ class _TabSwitcherPageState extends State<TabSwitcherPage> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      backgroundColor: const Color(0xFFF5F6F8),
+      backgroundColor: Colors.black,
       appBar: _selectMode ? _buildSelectAppBar() : _buildNormalAppBar(),
       body: widget.manager.tabs.isEmpty
           ? const Center(
@@ -174,20 +174,20 @@ class _TabSwitcherPageState extends State<TabSwitcherPage> {
 
   PreferredSizeWidget _buildNormalAppBar() {
     return AppBar(
-      backgroundColor: const Color(0xFFF5F6F8),
+      backgroundColor: Colors.black,
       elevation: 0,
       scrolledUnderElevation: 0,
       centerTitle: true,
       title: Text(
         '标签页（${widget.manager.count}）',
-        style: const TextStyle(fontSize: 16, fontWeight: FontWeight.w600),
+        style: const TextStyle(fontSize: 16, fontWeight: FontWeight.w600, color: Colors.white),
       ),
     );
   }
 
   PreferredSizeWidget _buildSelectAppBar() {
     return AppBar(
-      backgroundColor: const Color(0xFFF5F6F8),
+      backgroundColor: Colors.black,
       elevation: 0,
       scrolledUnderElevation: 0,
       leading: TextButton(
@@ -201,7 +201,7 @@ class _TabSwitcherPageState extends State<TabSwitcherPage> {
       centerTitle: true,
       title: Text(
         '已选 ${_selected.length} 个',
-        style: const TextStyle(fontSize: 15, fontWeight: FontWeight.w600),
+        style: const TextStyle(fontSize: 15, fontWeight: FontWeight.w600, color: Colors.white),
       ),
       actions: [
         TextButton(
@@ -221,8 +221,8 @@ class _TabSwitcherPageState extends State<TabSwitcherPage> {
       child: Container(
         height: 64,
         decoration: const BoxDecoration(
-          color: Colors.white,
-          border: Border(top: BorderSide(color: Color(0xFFE5E7EB))),
+          color: Color(0xFF1C1C1E),
+          border: Border(top: BorderSide(color: Color(0xFF2C2C2E))),
         ),
         child: Row(
           children: [
@@ -231,7 +231,7 @@ class _TabSwitcherPageState extends State<TabSwitcherPage> {
                 onPressed: _showModifyMenu,
                 child: const Text(
                   '修改',
-                  style: TextStyle(fontSize: 16, color: Color(0xFF374151)),
+                  style: TextStyle(fontSize: 16, color: Colors.white),
                 ),
               ),
             ),
@@ -244,7 +244,7 @@ class _TabSwitcherPageState extends State<TabSwitcherPage> {
                   color: Color(0xFF3B82F6),
                   shape: BoxShape.circle,
                 ),
-                child: const Icon(Icons.add, color: Colors.white, size: 28),
+                child: const Icon(Icons.add, color: Color(0xFF1C1C1E), size: 28),
               ),
             ),
             Expanded(
@@ -252,7 +252,7 @@ class _TabSwitcherPageState extends State<TabSwitcherPage> {
                 onPressed: () => Navigator.of(context).pop(),
                 child: const Text(
                   '完成',
-                  style: TextStyle(fontSize: 16, color: Color(0xFF374151)),
+                  style: TextStyle(fontSize: 16, color: Colors.white),
                 ),
               ),
             ),
@@ -269,8 +269,8 @@ class _TabSwitcherPageState extends State<TabSwitcherPage> {
       child: Container(
         height: 64,
         decoration: BoxDecoration(
-          color: Colors.white,
-          border: const Border(top: BorderSide(color: Color(0xFFE5E7EB))),
+          color: Color(0xFF1C1C1E),
+          border: const Border(top: BorderSide(color: Color(0xFF2C2C2E))),
           boxShadow: hasSelection
               ? [BoxShadow(color: Colors.black.withValues(alpha: 0.05), blurRadius: 8)]
               : null,
@@ -285,7 +285,7 @@ class _TabSwitcherPageState extends State<TabSwitcherPage> {
                         _exitSelectMode();
                       }
                     : null,
-                icon: const Icon(Icons.close, size: 20),
+                icon: const Icon(Icons.close, size: 20, color: Color(0xFF9CA3AF)),
                 label: Text(
                   hasSelection ? '关闭 ${_selected.length} 个' : '关闭标签',
                   style: TextStyle(
@@ -297,7 +297,7 @@ class _TabSwitcherPageState extends State<TabSwitcherPage> {
                 ),
               ),
             ),
-            Container(width: 1, height: 24, color: const Color(0xFFE5E7EB)),
+            Container(width: 1, height: 24, color: const Color(0xFF2C2C2E)),
             Expanded(
               child: TextButton.icon(
                 onPressed: hasSelection
@@ -306,7 +306,7 @@ class _TabSwitcherPageState extends State<TabSwitcherPage> {
                         _exitSelectMode();
                       }
                     : null,
-                icon: const Icon(Icons.star_border, size: 20),
+                icon: const Icon(Icons.star_border, size: 20, color: Color(0xFF9CA3AF)),
                 label: Text(
                   hasSelection ? '添加 ${_selected.length} 个书签' : '添加到书签',
                   style: TextStyle(
