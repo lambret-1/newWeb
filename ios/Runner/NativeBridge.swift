@@ -280,8 +280,9 @@ public class NativeBridgePlugin: NSObject, FlutterPlugin, QLPreviewControllerDat
   }
 
   private func findWebViewInVC(_ vc: UIViewController, logs: inout [String]) -> WKWebView? {
+    logs.append("VC: \(String(describing: vc)), children.count=\(vc.children.count), view.subviews.count=\(vc.view.subviews.count)")
     // 1. 在当前 VC 的 view 层级中找
-    if let found = findVisibleWebView(in: vc.view, logs: &logs) {
+    if let found = findVisibleWebView(in: vc.view, depth: 0, logs: &logs) {
       logs.append("✅ 在 VC \(String(describing: vc)) 的 view 中找到 WKWebView")
       return found
     }
@@ -300,17 +301,20 @@ public class NativeBridgePlugin: NSObject, FlutterPlugin, QLPreviewControllerDat
     return nil
   }
 
-  private func findVisibleWebView(in view: UIView, logs: inout [String]) -> WKWebView? {
+  private func findVisibleWebView(in view: UIView, depth: Int, logs: inout [String]) -> WKWebView? {
+    if depth > 20 { return nil }
+    let indent = String(repeating: "  ", count: depth)
+    logs.append("\(indent)\(type(of: view)) frame=\(view.frame) hidden=\(view.isHidden)")
     if let wv = view as? WKWebView {
-      logs.append("发现 WKWebView: isHidden=\(wv.isHidden), frame=\(wv.frame), alpha=\(wv.alpha)")
+      logs.append("\(indent)✅ 是 WKWebView! isHidden=\(wv.isHidden), frame=\(wv.frame), alpha=\(wv.alpha)")
       if !wv.isHidden && wv.frame.width > 1 && wv.alpha > 0.1 {
         return wv
       }
-      logs.append("⚠️ WKWebView 不可见，跳过")
+      logs.append("\(indent)⚠️ WKWebView 不可见，跳过")
       return nil
     }
     for sub in view.subviews {
-      if let found = findVisibleWebView(in: sub, logs: &logs) {
+      if let found = findVisibleWebView(in: sub, depth: depth + 1, logs: &logs) {
         return found
       }
     }
