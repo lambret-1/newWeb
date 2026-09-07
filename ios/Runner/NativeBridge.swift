@@ -259,24 +259,10 @@ public class NativeBridgePlugin: NSObject, FlutterPlugin, QLPreviewControllerDat
         return
       }
       slog("pngData 成功, data.count=\(data.count) bytes")
-      // 用 tmp 目录（iOS 一定可写），避免 Caches 目录权限问题
-      let dir = FileManager.default.temporaryDirectory.appendingPathComponent("Snapshots", isDirectory: true)
-      do {
-        try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
-      } catch {
-        slog("❌ 创建目录失败, error=\(error.localizedDescription)")
-        result(["logs": logs])
-        return
-      }
-      let file = dir.appendingPathComponent("snapshot_\(Int(Date().timeIntervalSince1970)).png")
-      do {
-        try data.write(to: file)
-        slog("✅ 写文件成功, path=\(file.path)")
-        result(["path": file.path, "url": webView.url?.absoluteString ?? "", "logs": logs])
-      } catch {
-        slog("❌ 写文件失败, error=\(error.localizedDescription)")
-        result(["logs": logs])
-      }
+      // 直接 base64 返回 Dart，由 Dart 写入 AppSupport（彻底绕开 Swift 写文件权限问题）
+      let base64 = data.base64EncodedString()
+      slog("✅ base64 编码成功, base64.count=\(base64.count)")
+      result(["base64": base64, "url": webView.url?.absoluteString ?? "", "logs": logs])
     }
   }
 

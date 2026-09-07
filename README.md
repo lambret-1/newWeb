@@ -54,7 +54,11 @@ iOS 底层为系统 WKWebView（App Store 对浏览器的强制要求），Flutt
 
 ## 更新日志
 
-### v1.0.21（最新 · 快照根因修复）
+### v1.0.22（最新 · 快照彻底修复）
+- **彻底修复快照写文件权限问题**：放弃 Swift 端写文件方案（Caches/tmp 目录均报权限错误），改为 Swift 直接将 PNG 数据 base64 编码返回 Dart，由 Dart 解码后写入 AppSupport 目录（Flutter 官方可写目录，绝无权限问题）
+- 数据量约 72KB → base64 96KB，MethodChannel 传输无压力
+
+### v1.0.21（快照根因修复）
 - **修复快照完全不显示的根因**：Swift 端写文件到 `CachesDirectory/Snapshots/` 报权限错误（You don't have permission），导致截图成功但写文件失败返回 null。改用 `FileManager.default.temporaryDirectory`（iOS 一定可写），并将 `try?` 改为 do-catch 暴露错误
 - 通过 v1.0.20 手机端日志功能精确定位：findWebView ✅ → takeSnapshot ✅ (72KB) → 写文件 ❌ 权限错误
 

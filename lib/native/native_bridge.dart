@@ -1,5 +1,5 @@
 import 'dart:async';
-import 'dart:io';
+import 'dart:convert';
 
 import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart';
@@ -97,7 +97,7 @@ class NativeBridge {
     await invoke('previewFile', {'path': path});
   }
 
-  /// 截取指定标签快照（Swift 写 PNG 文件，Dart 读文件避免大消息传输）。
+  /// 截取指定标签快照（Swift 直接 base64 返回 PNG，Dart 解码并写入 AppSupport）。
   /// Swift 端日志通过返回值的 logs 字段带回，写入 SnapshotLogger。
   static Future<Uint8List?> captureSnapshot(String url) async {
     final value = await invoke('captureSnapshot', {'url': url});
@@ -112,17 +112,17 @@ class NativeBridge {
         if (l is String) SnapshotLogger.instance.log('[Swift] $l');
       }
     }
-    final path = value['path'] as String?;
-    if (path == null) {
-      SnapshotLogger.instance.log('NativeBridge 返回 path=null（截图失败）');
+    final base64 = value['base64'] as String?;
+    if (base64 == null || base64.isEmpty) {
+      SnapshotLogger.instance.log('NativeBridge 返回 base64=null（截图失败）');
       return null;
     }
     try {
-      final bytes = await File(path).readAsBytes();
-      SnapshotLogger.instance.log('Dart 读取截图文件成功, bytes=${bytes.length}');
+      final bytes = const Base64Decoder().convert(base64);
+      SnapshotLogger.instance.log('Dart base64 解码成功, bytes=${bytes.length}');
       return bytes;
     } catch (e) {
-      SnapshotLogger.instance.log('Dart 读取截图文件失败: $e');
+      SnapshotLogger.instance.log('Dart base64 解码失败: $e');
       return null;
     }
   }
