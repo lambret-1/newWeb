@@ -314,8 +314,8 @@ class _SettingsPageState extends State<SettingsPage> {
             const Padding(
               padding: EdgeInsets.symmetric(horizontal: 20),
               child: Text(
-                '点击「立即安装」将自动跳转到设置应用完成安装；'
-                '也可选择分享后用 Safari 打开。',
+                '点击「立即安装」后在弹出菜单中选择「Safari」，'
+                'Safari 会提示下载配置文件，随后到「设置→通用→VPN与设备管理」完成安装。',
                 style: TextStyle(fontSize: 12, color: Color(0xFF6B7280)),
               ),
             ),

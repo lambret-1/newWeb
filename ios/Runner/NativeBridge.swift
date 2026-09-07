@@ -5,9 +5,10 @@ import QuickLook
 
 /// 原生能力桥：缓存管理 / 内容拦截器 / 下载管理 / 文件预览 / DNS 描述文件。
 /// 事件通道（com.newweb/native_events）推送下载进度与长按菜单动作。
-public class NativeBridgePlugin: NSObject, FlutterPlugin, QLPreviewControllerDataSource {
+public class NativeBridgePlugin: NSObject, FlutterPlugin, QLPreviewControllerDataSource, UIDocumentInteractionControllerDelegate {
   private var eventSink: FlutterEventSink?
   private var previewURL: URL?
+  private var documentController: UIDocumentInteractionController?
 
   public static func register(with registrar: FlutterPluginRegistrar) {
     let channel = FlutterMethodChannel(
@@ -198,12 +199,18 @@ public class NativeBridgePlugin: NSObject, FlutterPlugin, QLPreviewControllerDat
     topViewController()?.present(preview, animated: true)
   }
 
-  /// 用系统默认方式打开文件（如 .mobileconfig 会自动弹出设置应用安装）。
+  /// 用 UIDocumentInteractionController 弹出打开方式菜单（.mobileconfig 可选择设置/Safari 安装）。
   private func openSystemURL(path: String, result: @escaping FlutterResult) {
     let url = URL(fileURLWithPath: path)
-    UIApplication.shared.open(url, options: [:]) { success in
-      result(success)
+    documentController = UIDocumentInteractionController(url: url)
+    documentController?.delegate = self
+    documentController?.uti = "com.apple.mobileconfig"
+    guard let view = topViewController()?.view else {
+      result(false)
+      return
     }
+    documentController?.presentOptionsMenu(from: view.bounds, in: view, animated: true)
+    result(true)
   }
 
   /// 在 Safari 中打开网页 URL。
