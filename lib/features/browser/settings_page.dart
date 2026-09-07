@@ -1,8 +1,11 @@
 import 'dart:convert';
+import 'dart:io';
 
 import 'package:flutter/material.dart';
 import 'package:http/http.dart' as http;
 import 'package:package_info_plus/package_info_plus.dart';
+import 'package:path/path.dart' as p;
+import 'package:path_provider/path_provider.dart';
 import 'package:share_plus/share_plus.dart';
 
 import '../../core/services/adblock_custom_service.dart';
@@ -367,6 +370,18 @@ class _SettingsPageState extends State<SettingsPage> {
       final latestTag = (data['tag_name'] as String? ?? '').replaceFirst('v', '');
       final releaseUrl = data['html_url'] as String? ?? '';
       final body = data['body'] as String? ?? '';
+      // 查找 IPA 下载链接
+      String? ipaUrl;
+      final assets = (data['assets'] as List?) ?? [];
+      for (final a in assets) {
+        if (a is Map<String, dynamic>) {
+          final name = a['name'] as String? ?? '';
+          if (name.endsWith('.ipa')) {
+            ipaUrl = a['browser_download_url'] as String?;
+            break;
+          }
+        }
+      }
 
       if (latestTag.isEmpty) {
         _showMessage('检查更新失败');
@@ -405,20 +420,54 @@ class _SettingsPageState extends State<SettingsPage> {
               onPressed: () => Navigator.of(ctx).pop(),
               child: const Text('稍后'),
             ),
-            TextButton(
-              onPressed: () async {
-                Navigator.of(ctx).pop();
-                if (releaseUrl.isNotEmpty) {
-                  await NativeBridge.openWebURL(releaseUrl);
-                }
-              },
-              child: const Text('前往下载'),
-            ),
+            if (ipaUrl != null)
+              TextButton(
+                onPressed: () async {
+                  Navigator.of(ctx).pop();
+                  await _downloadAndInstallIPA(ipaUrl!, latestTag);
+                },
+                child: const Text('立即更新'),
+              )
+            else
+              TextButton(
+                onPressed: () async {
+                  Navigator.of(ctx).pop();
+                  if (releaseUrl.isNotEmpty) {
+                    await NativeBridge.openWebURL(releaseUrl);
+                  }
+                },
+                child: const Text('前往下载'),
+              ),
           ],
         ),
       );
     } catch (e) {
       _showMessage('检查更新失败：网络异常');
+    }
+  }
+
+  /// 在 App 内下载 IPA 并唤起安装工具（不跳转 Safari）。
+  Future<void> _downloadAndInstallIPA(String url, String version) async {
+    _showMessage('正在下载 v$version，请稍候...');
+    try {
+      final req = http.Request('GET', Uri.parse(url));
+      final streamed = await req.send().timeout(const Duration(minutes: 5));
+      if (streamed.statusCode != 200) {
+        _showMessage('下载失败（HTTP ${streamed.statusCode}），请稍后重试');
+        return;
+      }
+      final bytes = await streamed.stream.toBytes();
+      final tmp = await getTemporaryDirectory();
+      final path = p.join(tmp.path, 'NewWeb-v$version.ipa');
+      await File(path).writeAsBytes(bytes);
+      _showMessage('下载完成（${(bytes.length / 1048576).toStringAsFixed(1)} MB），正在唤起安装工具...');
+      await Future.delayed(const Duration(milliseconds: 800));
+      final ok = await NativeBridge.openSystemURL(path);
+      if (!ok) {
+        _showMessage('无法打开文件，请到下载目录手动安装');
+      }
+    } catch (e) {
+      _showMessage('下载失败：网络异常，请稍后重试');
     }
   }
 

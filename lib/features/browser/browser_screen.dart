@@ -293,6 +293,33 @@ class _BrowserScreenState extends State<BrowserScreen> with WidgetsBindingObserv
         });
   }
 
+  /// 从 GitHub 获取最新 Release 信息。返回 (版本号, 更新内容, Release链接, IPA下载链接)。
+  Future<(String, String, String, String?)> _fetchLatestRelease() async {
+    final resp = await http.get(
+      Uri.parse('https://api.github.com/repos/lambret-1/newWeb/releases/latest'),
+    ).timeout(const Duration(seconds: 10));
+    if (resp.statusCode != 200) {
+      throw Exception('HTTP ${resp.statusCode}');
+    }
+    final data = jsonDecode(resp.body) as Map<String, dynamic>;
+    final latestTag = (data['tag_name'] as String? ?? '').replaceFirst('v', '');
+    final releaseUrl = data['html_url'] as String? ?? '';
+    final body = data['body'] as String? ?? '';
+    // 查找 IPA 下载链接（不用 firstOrNull，改用循环确保可靠）
+    String? ipaUrl;
+    final assets = (data['assets'] as List?) ?? [];
+    for (final a in assets) {
+      if (a is Map<String, dynamic>) {
+        final name = a['name'] as String? ?? '';
+        if (name.endsWith('.ipa')) {
+          ipaUrl = a['browser_download_url'] as String?;
+          break;
+        }
+      }
+    }
+    return (latestTag, body, releaseUrl, ipaUrl);
+  }
+
   /// 自动检查更新：前台时触发，检查间隔 1 小时，跳过用户已忽略的版本。
   Future<void> _autoCheckUpdate() async {
     if (!mounted) return;
@@ -308,13 +335,7 @@ class _BrowserScreenState extends State<BrowserScreen> with WidgetsBindingObserv
     await settings.setLastUpdateCheck(now);
 
     try {
-      final resp = await http.get(
-        Uri.parse('https://api.github.com/repos/lambret-1/newWeb/releases/latest'),
-      ).timeout(const Duration(seconds: 10));
-      if (resp.statusCode != 200) return;
-
-      final data = jsonDecode(resp.body) as Map<String, dynamic>;
-      final latestTag = (data['tag_name'] as String? ?? '').replaceFirst('v', '');
+      final (latestTag, body, releaseUrl, ipaUrl) = await _fetchLatestRelease();
       if (latestTag.isEmpty) return;
 
       final info = await PackageInfo.fromPlatform();
@@ -324,16 +345,6 @@ class _BrowserScreenState extends State<BrowserScreen> with WidgetsBindingObserv
       // 检查是否是用户跳过的版本
       final skipped = await settings.getUpdateSkippedVersion();
       if (skipped == latestTag) return;
-
-      final releaseUrl = data['html_url'] as String? ?? '';
-      final body = data['body'] as String? ?? '';
-      final assets = (data['assets'] as List?) ?? [];
-      final ipaUrl = assets
-          .whereType<Map<String, dynamic>>()
-          .where((a) => (a['name'] as String? ?? '').endsWith('.ipa'))
-          .map((a) => a['browser_download_url'] as String?)
-          .whereType<String>()
-          .firstOrNull;
 
       if (!mounted) return;
       _showUpdateDialog(latestTag, current, body, releaseUrl, ipaUrl);
@@ -405,29 +416,28 @@ class _BrowserScreenState extends State<BrowserScreen> with WidgetsBindingObserv
     );
   }
 
-  /// 下载 IPA 并唤起全能签等签名工具安装。
+  /// 在 App 内下载 IPA 并唤起全能签等签名工具安装（不跳转 Safari）。
   Future<void> _downloadAndInstallIPA(String url, String version) async {
-    _showMessage('正在下载 v$version...');
+    _showMessage('正在下载 v$version，请稍候...');
     try {
-      final resp = await http.get(Uri.parse(url)).timeout(
-        const Duration(minutes: 5),
-      );
-      if (resp.statusCode != 200) {
-        _showMessage('下载失败，请前往 Release 页面手动下载');
-        if (url.isNotEmpty) await NativeBridge.openWebURL(url);
+      final req = http.Request('GET', Uri.parse(url));
+      final streamed = await req.send().timeout(const Duration(minutes: 5));
+      if (streamed.statusCode != 200) {
+        _showMessage('下载失败（HTTP ${streamed.statusCode}），请稍后重试');
         return;
       }
+      final bytes = await streamed.stream.toBytes();
       final tmp = await getTemporaryDirectory();
       final path = p.join(tmp.path, 'NewWeb-v$version.ipa');
-      await File(path).writeAsBytes(resp.bodyBytes);
-      _showMessage('下载完成，正在唤起安装工具...');
-      await Future.delayed(const Duration(milliseconds: 500));
+      await File(path).writeAsBytes(bytes);
+      _showMessage('下载完成（${(bytes.length / 1048576).toStringAsFixed(1)} MB），正在唤起安装工具...');
+      await Future.delayed(const Duration(milliseconds: 800));
       final ok = await NativeBridge.openSystemURL(path);
       if (!ok) {
-        _showMessage('无法打开，请手动安装');
+        _showMessage('无法打开文件，请到下载目录手动安装');
       }
     } catch (e) {
-      _showMessage('下载失败：网络异常');
+      _showMessage('下载失败：网络异常，请稍后重试');
     }
   }
 
