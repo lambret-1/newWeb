@@ -162,6 +162,8 @@ class _BrowserScreenState extends State<BrowserScreen> {
 
   void _openTabSwitcher() {
     FocusScope.of(context).unfocus();
+    // 打开标签切换页前先截当前页快照（后台异步，不阻塞打开）
+    _refreshSnapshot();
     Navigator.of(context)
         .push<String>(
           MaterialPageRoute(

@@ -231,7 +231,10 @@ public class NativeBridgePlugin: NSObject, FlutterPlugin, QLPreviewControllerDat
       result(nil)
       return
     }
-    webView.takeSnapshot(with: nil) { [weak self] image, error in
+    // 缩略图配置：宽度 180pt（匹配多标签卡片宽度），大幅减小文件体积
+    let config = WKSnapshotConfiguration()
+    config.snapshotWidth = NSNumber(value: 180)
+    webView.takeSnapshot(with: config) { [weak self] image, error in
       guard let self = self, let image = image, error == nil,
             let data = image.pngData() else {
         result(nil)
