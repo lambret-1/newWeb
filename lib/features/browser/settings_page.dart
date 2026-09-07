@@ -6,7 +6,7 @@ import '../../core/services/settings_service.dart';
 import '../../native/native_bridge.dart';
 import 'adblock_custom_page.dart';
 import 'cache_manager_page.dart';
-import 'snapshot_log_page.dart';
+import 'debug_log_page.dart';
 
 /// 设置页：搜索引擎 / 广告拦截（含豁免站点）/ 无痕 / 网页翻译 / 缓存 / DNS / 关于。
 class SettingsPage extends StatefulWidget {
@@ -519,13 +519,13 @@ class _SettingsPageState extends State<SettingsPage> {
               ListTile(
                 leading: const Icon(Icons.bug_report_outlined,
                     size: 22, color: Color(0xFF374151)),
-                title: const Text('快照调试日志', style: TextStyle(fontSize: 15)),
+                title: const Text('调试日志', style: TextStyle(fontSize: 15)),
                 trailing: const Icon(Icons.chevron_right,
                     size: 20, color: Color(0xFF9CA3AF)),
                 onTap: () {
                   Navigator.of(context).push(
                     MaterialPageRoute(
-                      builder: (_) => const SnapshotLogPage(),
+                      builder: (_) => const DebugLogPage(),
                     ),
                   );
                 },

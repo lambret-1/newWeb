@@ -54,7 +54,19 @@ iOS 底层为系统 WKWebView（App Store 对浏览器的强制要求），Flutt
 
 ## 更新日志
 
-### v1.0.23（最新 · 修复 findWebView 找不到 WKWebView）
+### v1.0.25（最新 · 全局调试日志 + 下载管理增强）
+- **移除快照专用日志**：删除 SnapshotLogger 和快照调试日志页面，改为全局 DebugLogger
+- **全局调试日志**：支持按模块过滤（通用/快照/下载/广告拦截/翻译/导航/原生），最多保留 500 条，支持复制/分享/清空，设置→关于→调试日志
+- **下载管理增强**：
+  - 已下载文件显示完成时间（今天显示时分，今年显示月日时分）
+  - 文件类型图标（图片绿/视频紫/音频橙/文档蓝/压缩包棕/应用青/其他灰）
+  - 下载完成全局弹窗提示（关闭/分享/打开），在浏览器主页和下载页均生效
+  - 已下载文件按时间倒序排列
+
+### v1.0.24（视图层级打印日志）
+- 加完整视图层级打印日志，定位 WKWebView 位置
+
+### v1.0.23（修复 findWebView 找不到 WKWebView）
 - **修复快照找不到 WKWebView**：根因是单纯遍历 `window.subviews` 穿不透 Flutter 的 ViewController 容器（平台视图放在 childViewController 中）。改为从 `rootViewController` 开始遍历，同时穿透 `childViewControllers` 和 `presentedViewController`，确保能找到 Flutter 的 WKWebView
 - 通过手机端日志精确定位：`findWebView 遍历 window[0] → 所有 window 遍历完毕，未找到 WKWebView`
 

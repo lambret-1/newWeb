@@ -38,11 +38,17 @@ class DownloadTaskInfo {
 
 /// 已下载文件条目。
 class DownloadedFile {
-  const DownloadedFile({required this.path, required this.name, required this.size});
+  const DownloadedFile({
+    required this.path,
+    required this.name,
+    required this.size,
+    required this.modifiedTime,
+  });
 
   final String path;
   final String name;
   final int size;
+  final DateTime modifiedTime;
 }
 
 /// 下载服务：转发原生下载事件，维护任务状态（进程内存）。
@@ -53,11 +59,15 @@ class DownloadService {
 
   final Map<String, DownloadTaskInfo> _tasks = {};
   final ValueNotifier<int> _version = ValueNotifier(0);
+  final ValueNotifier<DownloadTaskInfo?> _completedTask = ValueNotifier(null);
   StreamSubscription<Map<String, dynamic>>? _sub;
   bool _listening = false;
 
   /// 任务变更通知（页面监听刷新）。
   ValueNotifier<int> get version => _version;
+
+  /// 下载完成通知（监听后弹出完成提示，消费后置 null）。
+  ValueNotifier<DownloadTaskInfo?> get completedTask => _completedTask;
 
   /// 订阅原生事件（幂等）。
   void ensureListening() {
@@ -100,6 +110,7 @@ class DownloadService {
           task.status = DownloadStatus.completed;
           task.fileName = e['name'] as String? ?? task.fileName;
           task.received = task.total;
+          _completedTask.value = task;
         }
       case 'download_paused':
         _tasks[taskId]?.status = DownloadStatus.paused;
@@ -148,7 +159,7 @@ class DownloadService {
   List<DownloadTaskInfo> get activeTasks =>
       _tasks.values.where((t) => t.status != DownloadStatus.completed).toList();
 
-  /// 已完成文件列表（扫描 Downloads 目录）。
+  /// 已完成文件列表（扫描 Downloads 目录，按修改时间倒序）。
   Future<List<DownloadedFile>> listCompletedFiles() async {
     final docs = await getApplicationDocumentsDirectory();
     final dir = Directory(p.join(docs.path, 'Downloads'));
@@ -161,9 +172,10 @@ class DownloadService {
         path: f.path,
         name: p.basename(f.path),
         size: stat.size,
+        modifiedTime: stat.modified,
       ));
     }
-    result.sort((a, b) => b.size.compareTo(a.size));
+    result.sort((a, b) => b.modifiedTime.compareTo(a.modifiedTime));
     return result;
   }
 

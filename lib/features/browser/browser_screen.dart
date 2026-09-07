@@ -1,7 +1,7 @@
 import 'dart:async';
 import 'dart:io';
 
-import '../../core/services/snapshot_logger.dart';
+import '../../core/services/debug_logger.dart';
 import 'package:flutter/material.dart';
 import 'package:path_provider/path_provider.dart';
 import 'package:share_plus/share_plus.dart';
@@ -55,9 +55,54 @@ class _BrowserScreenState extends State<BrowserScreen> {
       DatabaseHelper.instance.initDefaultBookmarks();
       AdBlockService.instance.init();
       DownloadService.instance.ensureListening();
+      DownloadService.instance.completedTask.addListener(_onDownloadCompleted);
     });
     _loadIncognito();
     _listenNativeEvents();
+  }
+
+  /// 下载完成全局弹窗提示。
+  void _onDownloadCompleted() {
+    final task = DownloadService.instance.completedTask.value;
+    if (task == null || !mounted) return;
+    DownloadService.instance.completedTask.value = null;
+    final name = task.fileName ?? '下载文件';
+    showDialog(
+      context: context,
+      barrierDismissible: false,
+      builder: (ctx) => AlertDialog(
+        title: const Text('下载完成', style: TextStyle(fontSize: 16)),
+        content: Text(name,
+            maxLines: 2,
+            overflow: TextOverflow.ellipsis,
+            style: const TextStyle(fontSize: 14, color: Color(0xFF6B7280))),
+        actions: [
+          TextButton(onPressed: () => Navigator.of(ctx).pop(), child: const Text('关闭')),
+          TextButton(
+            onPressed: () async {
+              Navigator.of(ctx).pop();
+              final files = await DownloadService.instance.listCompletedFiles();
+              final match = files.where((f) => f.name == name).toList();
+              if (match.isNotEmpty) {
+                await Share.shareXFiles([XFile(match.first.path)]);
+              }
+            },
+            child: const Text('分享'),
+          ),
+          TextButton(
+            onPressed: () async {
+              Navigator.of(ctx).pop();
+              final files = await DownloadService.instance.listCompletedFiles();
+              final match = files.where((f) => f.name == name).toList();
+              if (match.isNotEmpty) {
+                await NativeBridge.previewFile(match.first.path);
+              }
+            },
+            child: const Text('打开'),
+          ),
+        ],
+      ),
+    );
   }
 
   /// 初始化标签：优先恢复上次会话（非无痕），否则新建默认标签。
@@ -132,6 +177,7 @@ class _BrowserScreenState extends State<BrowserScreen> {
   void dispose() {
     _nativeSub?.cancel();
     _tabManager.removeListener(_onTabsChanged);
+    DownloadService.instance.completedTask.removeListener(_onDownloadCompleted);
     _tabManager.dispose();
     _addressController.dispose();
     super.dispose();
@@ -478,28 +524,28 @@ class _BrowserScreenState extends State<BrowserScreen> {
   /// [delay] 等待页面渲染稳定的毫秒数（页面加载完成后用 400ms，即时截图用 0）。
   Future<void> _refreshSnapshot({int delay = 400}) async {
     if (_incognito) {
-      SnapshotLogger.instance.log(' 无痕模式，跳过截图');
+      DebugLogger.instance.log(' 无痕模式，跳过截图');
       return;
     }
     final active = _tabManager.activeTab;
     if (active == null) {
-      SnapshotLogger.instance.log(' activeTab 为 null，跳过');
+      DebugLogger.instance.log(' activeTab 为 null，跳过');
       return;
     }
-    SnapshotLogger.instance.log(' _refreshSnapshot 入口, tabId=${active.id}, url=${active.url}, delay=$delay');
+    DebugLogger.instance.log(' _refreshSnapshot 入口, tabId=${active.id}, url=${active.url}, delay=$delay');
     if (delay > 0) await Future.delayed(Duration(milliseconds: delay));
     final current = _tabManager.activeTab;
     if (current == null || current.id != active.id) {
-      SnapshotLogger.instance.log(' 延迟后 tab 已切换，跳过');
+      DebugLogger.instance.log(' 延迟后 tab 已切换，跳过');
       return;
     }
     final shot = await NativeBridge.captureSnapshot(active.url);
     if (!mounted) return;
     if (shot == null) {
-      SnapshotLogger.instance.log(' ❌ NativeBridge.captureSnapshot 返回 null');
+      DebugLogger.instance.log(' ❌ NativeBridge.captureSnapshot 返回 null');
       return;
     }
-    SnapshotLogger.instance.log(' ✅ 原生截图成功, bytes=${shot.length}');
+    DebugLogger.instance.log(' ✅ 原生截图成功, bytes=${shot.length}');
     // 写入稳定磁盘路径（App 重启后仍可读）
     try {
       final dir = await getApplicationSupportDirectory();
@@ -507,10 +553,10 @@ class _BrowserScreenState extends State<BrowserScreen> {
       if (!snapDir.existsSync()) snapDir.createSync(recursive: true);
       final file = File('${snapDir.path}/${active.id}.png');
       await file.writeAsBytes(shot);
-      SnapshotLogger.instance.log(' ✅ 写入 AppSupport 成功, path=${file.path}, exists=${file.existsSync()}');
+      DebugLogger.instance.log(' ✅ 写入 AppSupport 成功, path=${file.path}, exists=${file.existsSync()}');
       _tabManager.updateSnapshot(active.id, bytes: shot, diskPath: file.path);
     } catch (e) {
-      SnapshotLogger.instance.log(' ❌ 写入 AppSupport 失败, error=$e，仅存内存');
+      DebugLogger.instance.log(' ❌ 写入 AppSupport 失败, error=$e，仅存内存');
       _tabManager.updateSnapshot(active.id, bytes: shot);
     }
   }

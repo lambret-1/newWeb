@@ -4,6 +4,36 @@ import 'package:share_plus/share_plus.dart';
 import '../../core/services/download_service.dart';
 import '../../native/native_bridge.dart';
 
+/// 根据文件后缀返回图标和颜色。
+(IconData, Color) _fileIcon(String name) {
+  final ext = name.toLowerCase().split('.').last;
+  const images = {'jpg', 'jpeg', 'png', 'gif', 'webp', 'bmp', 'svg', 'heic'};
+  const videos = {'mp4', 'mov', 'avi', 'mkv', 'flv', 'webm', 'm4v'};
+  const audios = {'mp3', 'wav', 'flac', 'aac', 'm4a', 'ogg', 'wma'};
+  const docs = {'pdf', 'doc', 'docx', 'xls', 'xlsx', 'ppt', 'pptx', 'txt', 'md', 'rtf'};
+  const archives = {'zip', 'rar', '7z', 'tar', 'gz', 'bz2'};
+  const apps = {'ipa', 'apk', 'dmg', 'pkg', 'exe'};
+  if (images.contains(ext)) return (Icons.image, const Color(0xFF52C41A));
+  if (videos.contains(ext)) return (Icons.play_circle_fill, const Color(0xFF722ED1));
+  if (audios.contains(ext)) return (Icons.audiotrack, const Color(0xFFFA8C16));
+  if (docs.contains(ext)) return (Icons.description, const Color(0xFF1890FF));
+  if (archives.contains(ext)) return (Icons.archive, const Color(0xFFD48806));
+  if (apps.contains(ext)) return (Icons.apps, const Color(0xFF13C2C2));
+  return (Icons.insert_drive_file_outlined, const Color(0xFF8C8C8C));
+}
+
+/// 格式化时间（今天显示时分，今年显示月日时分，否则年月日）。
+String _formatTime(DateTime t) {
+  final now = DateTime.now();
+  if (t.year == now.year && t.month == now.month && t.day == now.day) {
+    return '今天 ${t.hour.toString().padLeft(2, '0')}:${t.minute.toString().padLeft(2, '0')}';
+  }
+  if (t.year == now.year) {
+    return '${t.month}月${t.day}日 ${t.hour.toString().padLeft(2, '0')}:${t.minute.toString().padLeft(2, '0')}';
+  }
+  return '${t.year}/${t.month}/${t.day}';
+}
+
 /// 下载管理器：进行中任务（进度/暂停/续传/取消）+ 已完成文件（打开/分享/删除）。
 class DownloadPage extends StatefulWidget {
   const DownloadPage({super.key});
@@ -21,14 +51,70 @@ class _DownloadPageState extends State<DownloadPage> {
     super.initState();
     DownloadService.instance.ensureListening();
     DownloadService.instance.version.addListener(_onChanged);
+    DownloadService.instance.completedTask.addListener(_onCompleted);
     _loadFiles();
   }
 
   @override
   void dispose() {
     DownloadService.instance.version.removeListener(_onChanged);
+    DownloadService.instance.completedTask.removeListener(_onCompleted);
     _urlController.dispose();
     super.dispose();
+  }
+
+  void _onCompleted() {
+    final task = DownloadService.instance.completedTask.value;
+    if (task == null || !mounted) return;
+    // 消费后重置
+    DownloadService.instance.completedTask.value = null;
+    _showCompletedDialog(task);
+  }
+
+  void _showCompletedDialog(DownloadTaskInfo task) {
+    final name = task.fileName ?? '下载文件';
+    showDialog(
+      context: context,
+      barrierDismissible: false,
+      builder: (ctx) => AlertDialog(
+        title: const Text('下载完成', style: TextStyle(fontSize: 16)),
+        content: Text(
+          name,
+          maxLines: 2,
+          overflow: TextOverflow.ellipsis,
+          style: const TextStyle(fontSize: 14, color: Color(0xFF6B7280)),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(ctx).pop(),
+            child: const Text('关闭'),
+          ),
+          TextButton(
+            onPressed: () async {
+              Navigator.of(ctx).pop();
+              // 找到文件路径并分享
+              final files = await DownloadService.instance.listCompletedFiles();
+              final match = files.where((f) => f.name == name).toList();
+              if (match.isNotEmpty) {
+                await Share.shareXFiles([XFile(match.first.path)]);
+              }
+            },
+            child: const Text('分享'),
+          ),
+          TextButton(
+            onPressed: () async {
+              Navigator.of(ctx).pop();
+              final files = await DownloadService.instance.listCompletedFiles();
+              final match = files.where((f) => f.name == name).toList();
+              if (match.isNotEmpty) {
+                await NativeBridge.previewFile(match.first.path);
+              }
+            },
+            child: const Text('打开'),
+          ),
+        ],
+      ),
+    );
   }
 
   void _onChanged() {
@@ -281,6 +367,7 @@ class _DownloadPageState extends State<DownloadPage> {
   }
 
   Widget _buildFileTile(DownloadedFile file) {
+    final (icon, color) = _fileIcon(file.name);
     return Container(
       margin: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
       decoration: BoxDecoration(
@@ -293,11 +380,10 @@ class _DownloadPageState extends State<DownloadPage> {
           height: 36,
           alignment: Alignment.center,
           decoration: BoxDecoration(
-            color: const Color(0xFFEFF4FF),
+            color: color.withValues(alpha: 0.1),
             borderRadius: BorderRadius.circular(10),
           ),
-          child: const Icon(Icons.insert_drive_file_outlined,
-              size: 18, color: Color(0xFF3B82F6)),
+          child: Icon(icon, size: 18, color: color),
         ),
         title: Text(
           file.name,
@@ -306,7 +392,7 @@ class _DownloadPageState extends State<DownloadPage> {
           style: const TextStyle(fontSize: 14),
         ),
         subtitle: Text(
-          DownloadService.formatSize(file.size),
+          '${DownloadService.formatSize(file.size)} · ${_formatTime(file.modifiedTime)}',
           style: const TextStyle(fontSize: 12, color: Color(0xFF9CA3AF)),
         ),
         onTap: () => NativeBridge.previewFile(file.path),
