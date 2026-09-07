@@ -266,17 +266,37 @@ public class NativeBridgePlugin: NSObject, FlutterPlugin, QLPreviewControllerDat
     }
   }
 
-  /// 查找当前可见的 WKWebView（Flutter 平台视图），日志写入 logs。
+  /// 查找当前可见的 WKWebView。
+  /// 从 keyWindow.rootViewController 开始，穿透 childViewControllers 和 presentedViewController，
+  /// 因为 Flutter 平台视图放在 ViewController 容器中，单纯遍历 view.subviews 找不到。
   private func findWebView(for url: String, logs: inout [String]) -> WKWebView? {
-    logs.append("findWebView 开始遍历, windows.count=\(UIApplication.shared.windows.count)")
-    for (i, window) in UIApplication.shared.windows.enumerated() {
-      logs.append("遍历 window[\(i)], isKeyWindow=\(window.isKeyWindow), rootVC=\(String(describing: window.rootViewController))")
-      if let found = findVisibleWebView(in: window, logs: &logs) {
-        logs.append("✅ 在 window[\(i)] 中找到 WKWebView")
+    guard let window = UIApplication.shared.keyWindow,
+          let rootVC = window.rootViewController else {
+      logs.append("❌ 找不到 keyWindow 或 rootViewController")
+      return nil
+    }
+    logs.append("findWebView 从 rootViewController 开始遍历: \(String(describing: rootVC))")
+    return findWebViewInVC(rootVC, logs: &logs)
+  }
+
+  private func findWebViewInVC(_ vc: UIViewController, logs: inout [String]) -> WKWebView? {
+    // 1. 在当前 VC 的 view 层级中找
+    if let found = findVisibleWebView(in: vc.view, logs: &logs) {
+      logs.append("✅ 在 VC \(String(describing: vc)) 的 view 中找到 WKWebView")
+      return found
+    }
+    // 2. 穿透 childViewControllers
+    for child in vc.children {
+      if let found = findWebViewInVC(child, logs: &logs) {
         return found
       }
     }
-    logs.append("❌ 所有 window 遍历完毕，未找到 WKWebView")
+    // 3. 穿透 presentedViewController
+    if let presented = vc.presentedViewController {
+      if let found = findWebViewInVC(presented, logs: &logs) {
+        return found
+      }
+    }
     return nil
   }
 

@@ -54,7 +54,11 @@ iOS 底层为系统 WKWebView（App Store 对浏览器的强制要求），Flutt
 
 ## 更新日志
 
-### v1.0.22（最新 · 快照彻底修复）
+### v1.0.23（最新 · 修复 findWebView 找不到 WKWebView）
+- **修复快照找不到 WKWebView**：根因是单纯遍历 `window.subviews` 穿不透 Flutter 的 ViewController 容器（平台视图放在 childViewController 中）。改为从 `rootViewController` 开始遍历，同时穿透 `childViewControllers` 和 `presentedViewController`，确保能找到 Flutter 的 WKWebView
+- 通过手机端日志精确定位：`findWebView 遍历 window[0] → 所有 window 遍历完毕，未找到 WKWebView`
+
+### v1.0.22（快照彻底修复）
 - **彻底修复快照写文件权限问题**：放弃 Swift 端写文件方案（Caches/tmp 目录均报权限错误），改为 Swift 直接将 PNG 数据 base64 编码返回 Dart，由 Dart 解码后写入 AppSupport 目录（Flutter 官方可写目录，绝无权限问题）
 - 数据量约 72KB → base64 96KB，MethodChannel 传输无压力
 
