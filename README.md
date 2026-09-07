@@ -54,7 +54,11 @@ iOS 底层为系统 WKWebView（App Store 对浏览器的强制要求），Flutt
 
 ## 更新日志
 
-### v1.0.20（最新 · 手机端日志导出）
+### v1.0.21（最新 · 快照根因修复）
+- **修复快照完全不显示的根因**：Swift 端写文件到 `CachesDirectory/Snapshots/` 报权限错误（You don't have permission），导致截图成功但写文件失败返回 null。改用 `FileManager.default.temporaryDirectory`（iOS 一定可写），并将 `try?` 改为 do-catch 暴露错误
+- 通过 v1.0.20 手机端日志功能精确定位：findWebView ✅ → takeSnapshot ✅ (72KB) → 写文件 ❌ 权限错误
+
+### v1.0.20（手机端日志导出）
 - 新增「快照调试日志」页面（设置 → 关于 → 快照调试日志），手机端直接查看日志
 - 日志支持**复制全部**和**系统分享**，无需电脑即可导出日志发给开发者
 - Swift 端日志通过 captureSnapshot 返回值带回 Dart，全链路日志统一收集到 SnapshotLogger

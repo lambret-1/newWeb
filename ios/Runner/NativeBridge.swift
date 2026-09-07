@@ -259,14 +259,15 @@ public class NativeBridgePlugin: NSObject, FlutterPlugin, QLPreviewControllerDat
         return
       }
       slog("pngData 成功, data.count=\(data.count) bytes")
-      guard let dir = FileManager.default.urls(
-        for: .cachesDirectory, in: .userDomainMask
-      ).first?.appendingPathComponent("Snapshots", isDirectory: true) else {
-        slog("❌ 获取 Caches 目录失败")
+      // 用 tmp 目录（iOS 一定可写），避免 Caches 目录权限问题
+      let dir = FileManager.default.temporaryDirectory.appendingPathComponent("Snapshots", isDirectory: true)
+      do {
+        try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+      } catch {
+        slog("❌ 创建目录失败, error=\(error.localizedDescription)")
         result(["logs": logs])
         return
       }
-      try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
       let file = dir.appendingPathComponent("snapshot_\(Int(Date().timeIntervalSince1970)).png")
       do {
         try data.write(to: file)
