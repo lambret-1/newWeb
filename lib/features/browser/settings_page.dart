@@ -288,7 +288,7 @@ class _SettingsPageState extends State<SettingsPage> {
       _showMessage('生成失败');
       return;
     }
-    final share = await showModalBottomSheet<bool>(
+    final action = await showModalBottomSheet<String>(
       context: context,
       backgroundColor: Colors.white,
       shape: const RoundedRectangleBorder(
@@ -308,29 +308,40 @@ class _SettingsPageState extends State<SettingsPage> {
             const Padding(
               padding: EdgeInsets.symmetric(horizontal: 20),
               child: Text(
-                '分享该文件后用「Safari」打开即可安装。安装后系统 DNS 将使用 '
-                'AdGuard DNS，在域名解析层拦截广告与追踪。',
+                '点击「立即安装」将自动跳转到设置应用完成安装；'
+                '也可选择分享后用 Safari 打开。',
                 style: TextStyle(fontSize: 12, color: Color(0xFF6B7280)),
               ),
             ),
             const SizedBox(height: 12),
             ListTile(
+              leading: const Icon(Icons.install_mobile,
+                  size: 22, color: Color(0xFF007AFF)),
+              title: const Text('立即安装', style: TextStyle(fontSize: 15)),
+              onTap: () => Navigator.of(sheetContext).pop('install'),
+            ),
+            ListTile(
               leading: const Icon(Icons.ios_share,
                   size: 22, color: Color(0xFF3B82F6)),
               title: const Text('分享描述文件', style: TextStyle(fontSize: 15)),
-              onTap: () => Navigator.of(sheetContext).pop(true),
+              onTap: () => Navigator.of(sheetContext).pop('share'),
             ),
             ListTile(
               leading: const Icon(Icons.close, size: 22, color: Color(0xFF374151)),
               title: const Text('取消', style: TextStyle(fontSize: 15)),
-              onTap: () => Navigator.of(sheetContext).pop(false),
+              onTap: () => Navigator.of(sheetContext).pop('cancel'),
             ),
             const SizedBox(height: 8),
           ],
         ),
       ),
     );
-    if (share == true) {
+    if (action == 'install') {
+      final ok = await NativeBridge.openSystemURL(path);
+      if (!ok && mounted) {
+        _showMessage('无法打开，请尝试分享后用 Safari 打开');
+      }
+    } else if (action == 'share') {
       await Share.shareXFiles([XFile(path)]);
     }
   }

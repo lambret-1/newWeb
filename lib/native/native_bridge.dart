@@ -97,6 +97,12 @@ class NativeBridge {
     await invoke('previewFile', {'path': path});
   }
 
+  /// 用系统默认方式打开文件（如 .mobileconfig 会自动弹出设置应用安装）。
+  static Future<bool> openSystemURL(String path) async {
+    final result = await invoke('openSystemURL', {'path': path});
+    return result == true;
+  }
+
   /// 截取指定标签快照（Swift 直接 base64 返回 PNG，Dart 解码并写入 AppSupport）。
   /// Swift 端日志通过返回值的 logs 字段带回，写入 DebugLogger。
   static Future<Uint8List?> captureSnapshot(String url) async {

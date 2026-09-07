@@ -72,6 +72,8 @@ public class NativeBridgePlugin: NSObject, FlutterPlugin, QLPreviewControllerDat
     case "previewFile":
       previewFile(path: args["path"] as? String ?? "")
       result(true)
+    case "openSystemURL":
+      openSystemURL(path: args["path"] as? String ?? "", result: result)
     case "captureSnapshot":
       captureSnapshot(url: args["url"] as? String ?? "", result: result)
     case "clearWebDataTypes":
@@ -192,6 +194,14 @@ public class NativeBridgePlugin: NSObject, FlutterPlugin, QLPreviewControllerDat
     let preview = QLPreviewController()
     preview.dataSource = self
     topViewController()?.present(preview, animated: true)
+  }
+
+  /// 用系统默认方式打开文件（如 .mobileconfig 会自动弹出设置应用安装）。
+  private func openSystemURL(path: String, result: @escaping FlutterResult) {
+    let url = URL(fileURLWithPath: path)
+    UIApplication.shared.open(url, options: [:]) { success in
+      result(success)
+    }
   }
 
   public func numberOfPreviewItems(in controller: QLPreviewController) -> Int {
