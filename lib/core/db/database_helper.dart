@@ -87,6 +87,16 @@ class DatabaseHelper {
     await db.delete('bookmarks', where: 'id = ?', whereArgs: [id]);
   }
 
+  Future<void> updateBookmark(int id, String title, String url) async {
+    final db = await database;
+    await db.update(
+      'bookmarks',
+      {'title': title, 'url': url},
+      where: 'id = ?',
+      whereArgs: [id],
+    );
+  }
+
   /// 首次使用时写入默认书签（百度 / GitHub / 哔哩哔哩）。
   Future<void> initDefaultBookmarks() async {
     final db = await database;
@@ -166,5 +176,10 @@ class DatabaseHelper {
   Future<void> clearHistory() async {
     final db = await database;
     await db.delete('history');
+  }
+
+  Future<void> deleteHistoryEntry(int id) async {
+    final db = await database;
+    await db.delete('history', where: 'id = ?', whereArgs: [id]);
   }
 }

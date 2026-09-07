@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:package_info_plus/package_info_plus.dart';
 import 'package:share_plus/share_plus.dart';
 
 import '../../core/services/adblock_custom_service.dart';
@@ -23,6 +24,7 @@ class _SettingsPageState extends State<SettingsPage> {
   bool _hasTencent = false;
   String _translateMode = 'auto';
   List<String> _autoTranslateDomains = [];
+  String _version = '';
 
   @override
   void initState() {
@@ -35,6 +37,11 @@ class _SettingsPageState extends State<SettingsPage> {
     final engine = await settings.getSearchEngine();
     final adBlock = await settings.isAdBlockEnabled();
     final incognito = await settings.isIncognitoEnabled();
+    final info = await PackageInfo.fromPlatform();
+    if (!mounted) return;
+    setState(() {
+      _version = info.version;
+    });
     final hasTencent = (await settings.getTencentSecretId()) != null;
     final mode = await settings.getTranslateMode();
     final domains = await settings.getAutoTranslateDomains();
@@ -374,9 +381,11 @@ class _SettingsPageState extends State<SettingsPage> {
                 secondary:
                     const Icon(Icons.block, size: 22, color: Color(0xFF374151)),
                 title: const Text('广告拦截', style: TextStyle(fontSize: 15)),
-                subtitle: const Text(
-                  '资源拦截 + 元素隐藏 + 追踪拦截',
-                  style: TextStyle(fontSize: 12, color: Color(0xFF9CA3AF)),
+                subtitle: Text(
+                  _adBlock
+                      ? '已启用 ${5 + _customRuleCount()} 条规则（内置 5 + 自定义 ${_customRuleCount()}）'
+                      : '资源拦截 + 元素隐藏 + 追踪拦截',
+                  style: const TextStyle(fontSize: 12, color: Color(0xFF9CA3AF)),
                 ),
                 value: _adBlock,
                 onChanged: (value) async {
@@ -393,12 +402,17 @@ class _SettingsPageState extends State<SettingsPage> {
                 icon: Icons.rule,
                 title: '自定义规则',
                 trailing: Text(
-                  '${_customRuleCount()}',
+                  _customRuleCount() > 0
+                      ? '拦截${AdblockCustomService.instance.blockDomains.length} · 隐藏${AdblockCustomService.instance.hiddenSelectors.length} · 白名单${AdblockCustomService.instance.whitelist.length}'
+                      : '未设置',
                   style:
-                      const TextStyle(fontSize: 14, color: Color(0xFF6B7280)),
+                      const TextStyle(fontSize: 12, color: Color(0xFF6B7280)),
                 ),
-                onTap: () => Navigator.of(context)
-                    .push(MaterialPageRoute(builder: (_) => const AdblockCustomPage())),
+                onTap: () async {
+                  await Navigator.of(context)
+                      .push(MaterialPageRoute(builder: (_) => const AdblockCustomPage()));
+                  if (mounted) setState(() {});
+                },
               ),
               const ListTile(
                 contentPadding:
@@ -507,13 +521,13 @@ class _SettingsPageState extends State<SettingsPage> {
           _group(
             title: '关于',
             children: [
-              const ListTile(
+              ListTile(
                 leading:
-                    Icon(Icons.info_outline, size: 22, color: Color(0xFF374151)),
-                title: Text('未来浏览器', style: TextStyle(fontSize: 15)),
+                    const Icon(Icons.info_outline, size: 22, color: Color(0xFF374151)),
+                title: const Text('未来浏览器', style: TextStyle(fontSize: 15)),
                 trailing: Text(
-                  '版本 1.0.9',
-                  style: TextStyle(fontSize: 14, color: Color(0xFF9CA3AF)),
+                  '版本 $_version',
+                  style: const TextStyle(fontSize: 14, color: Color(0xFF9CA3AF)),
                 ),
               ),
               ListTile(

@@ -3,7 +3,7 @@ import 'package:flutter/material.dart';
 import '../../core/db/database_helper.dart';
 import '../../core/models/history_entry.dart';
 
-/// 历史记录页：按时间倒序展示，支持打开 / 清空。
+/// 历史记录页：按日期分组 / 搜索 / 打开 / 单条删除 / 清空。
 class HistoryPage extends StatefulWidget {
   const HistoryPage({super.key});
 
@@ -13,7 +13,10 @@ class HistoryPage extends StatefulWidget {
 
 class _HistoryPageState extends State<HistoryPage> {
   List<HistoryEntry> _entries = [];
+  List<HistoryEntry> _filtered = [];
   bool _loading = true;
+  final TextEditingController _searchController = TextEditingController();
+  bool _searching = false;
 
   @override
   void initState() {
@@ -21,13 +24,33 @@ class _HistoryPageState extends State<HistoryPage> {
     _load();
   }
 
+  @override
+  void dispose() {
+    _searchController.dispose();
+    super.dispose();
+  }
+
   Future<void> _load() async {
     final list = await DatabaseHelper.instance.getHistory();
     if (!mounted) return;
     setState(() {
       _entries = list;
+      _applyFilter();
       _loading = false;
     });
+  }
+
+  void _applyFilter() {
+    final q = _searchController.text.trim().toLowerCase();
+    if (q.isEmpty) {
+      _filtered = _entries;
+    } else {
+      _filtered = _entries
+          .where((e) =>
+              e.title.toLowerCase().contains(q) ||
+              e.url.toLowerCase().contains(q))
+          .toList();
+    }
   }
 
   Future<void> _clear() async {
@@ -53,16 +76,43 @@ class _HistoryPageState extends State<HistoryPage> {
     _load();
   }
 
+  Future<void> _deleteEntry(HistoryEntry entry) async {
+    if (entry.id == null) return;
+    await DatabaseHelper.instance.deleteHistoryEntry(entry.id!);
+    _load();
+  }
+
+  /// 按日期分组：返回 (组标题, 条目列表) 的有序列表。
+  List<MapEntry<String, List<HistoryEntry>>> _groupByDate(
+      List<HistoryEntry> entries) {
+    final now = DateTime.now();
+    final today = DateTime(now.year, now.month, now.day);
+    final yesterday = today.subtract(const Duration(days: 1));
+
+    final groups = <String, List<HistoryEntry>>{};
+    for (final e in entries) {
+      final t = DateTime.fromMillisecondsSinceEpoch(e.visitedAt);
+      final d = DateTime(t.year, t.month, t.day);
+      String key;
+      if (d == today) {
+        key = '今天';
+      } else if (d == yesterday) {
+        key = '昨天';
+      } else if (now.difference(d).inDays < 7) {
+        key = '本周';
+      } else if (t.year == now.year) {
+        key = '${t.month}月${t.day}日';
+      } else {
+        key = '${t.year}年${t.month}月';
+      }
+      groups.putIfAbsent(key, () => []).add(e);
+    }
+    return groups.entries.toList();
+  }
+
   String _formatTime(int millis) {
     final time = DateTime.fromMillisecondsSinceEpoch(millis);
-    final now = DateTime.now();
-    final diff = now.difference(time);
-
-    if (diff.inMinutes < 1) return '刚刚';
-    if (diff.inMinutes < 60) return '${diff.inMinutes} 分钟前';
-    if (diff.inHours < 24) return '${diff.inHours} 小时前';
-    if (diff.inDays < 7) return '${diff.inDays} 天前';
-    return '${time.year}-${time.month.toString().padLeft(2, '0')}-${time.day.toString().padLeft(2, '0')}';
+    return '${time.hour.toString().padLeft(2, '0')}:${time.minute.toString().padLeft(2, '0')}';
   }
 
   @override
@@ -73,12 +123,36 @@ class _HistoryPageState extends State<HistoryPage> {
         backgroundColor: const Color(0xFFF5F6F8),
         elevation: 0,
         scrolledUnderElevation: 0,
-        title: const Text(
-          '历史记录',
-          style: TextStyle(fontSize: 16, fontWeight: FontWeight.w600),
-        ),
+        title: _searching
+            ? TextField(
+                controller: _searchController,
+                autofocus: true,
+                style: const TextStyle(fontSize: 15),
+                decoration: const InputDecoration(
+                  hintText: '搜索历史记录',
+                  border: InputBorder.none,
+                  hintStyle: TextStyle(color: Color(0xFFB0B7C3)),
+                ),
+                onChanged: (_) => setState(_applyFilter),
+              )
+            : const Text(
+                '历史记录',
+                style: TextStyle(fontSize: 16, fontWeight: FontWeight.w600),
+              ),
         actions: [
-          if (_entries.isNotEmpty)
+          IconButton(
+            icon: Icon(_searching ? Icons.close : Icons.search, size: 22),
+            onPressed: () {
+              setState(() {
+                _searching = !_searching;
+                if (!_searching) {
+                  _searchController.clear();
+                  _applyFilter();
+                }
+              });
+            },
+          ),
+          if (_entries.isNotEmpty && !_searching)
             TextButton(
               onPressed: _clear,
               child: const Text(
@@ -90,44 +164,71 @@ class _HistoryPageState extends State<HistoryPage> {
       ),
       body: _loading
           ? const Center(child: CircularProgressIndicator(strokeWidth: 2))
-          : _entries.isEmpty
-              ? const Center(
+          : _filtered.isEmpty
+              ? Center(
                   child: Text(
-                    '暂无浏览历史',
-                    style: TextStyle(color: Color(0xFF9CA3AF), fontSize: 14),
+                    _searching ? '未找到匹配的记录' : '暂无浏览历史',
+                    style: const TextStyle(color: Color(0xFF9CA3AF), fontSize: 14),
                   ),
                 )
-              : ListView.separated(
-                  itemCount: _entries.length,
-                  separatorBuilder: (_, _) => const Divider(
-                    height: 1,
-                    indent: 68,
-                    color: Color(0xFFEDEFF3),
-                  ),
-                  itemBuilder: (context, index) {
-                    final entry = _entries[index];
-                    return ListTile(
-                      onTap: () => Navigator.of(context).pop(entry.url),
-                      leading: _Favicon(title: entry.title),
-                      title: Text(
-                        entry.title,
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
-                        style: const TextStyle(fontSize: 14),
-                      ),
-                      subtitle: Text(
-                        entry.url,
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
-                        style: const TextStyle(fontSize: 12, color: Color(0xFF9CA3AF)),
-                      ),
-                      trailing: Text(
-                        _formatTime(entry.visitedAt),
-                        style: const TextStyle(fontSize: 11, color: Color(0xFFB0B7C3)),
-                      ),
+              : ListView(
+                  children: _groupByDate(_filtered).map((group) {
+                    return Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Padding(
+                          padding: const EdgeInsets.fromLTRB(16, 16, 16, 8),
+                          child: Text(
+                            group.key,
+                            style: const TextStyle(
+                              fontSize: 13,
+                              fontWeight: FontWeight.w600,
+                              color: Color(0xFF6B7280),
+                            ),
+                          ),
+                        ),
+                        ...group.value.map((entry) => _buildEntry(entry)),
+                      ],
                     );
-                  },
+                  }).toList(),
                 ),
+    );
+  }
+
+  Widget _buildEntry(HistoryEntry entry) {
+    return Dismissible(
+      key: ValueKey('hist-${entry.id ?? entry.url}'),
+      direction: DismissDirection.endToStart,
+      background: Container(
+        alignment: Alignment.centerRight,
+        padding: const EdgeInsets.only(right: 20),
+        color: const Color(0xFFEA6668),
+        child: const Icon(Icons.delete, color: Colors.white),
+      ),
+      onDismissed: (_) => _deleteEntry(entry),
+      child: Container(
+        color: Colors.white,
+        child: ListTile(
+          onTap: () => Navigator.of(context).pop(entry.url),
+          leading: _Favicon(title: entry.title),
+          title: Text(
+            entry.title,
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
+            style: const TextStyle(fontSize: 14),
+          ),
+          subtitle: Text(
+            entry.url,
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
+            style: const TextStyle(fontSize: 12, color: Color(0xFF9CA3AF)),
+          ),
+          trailing: Text(
+            _formatTime(entry.visitedAt),
+            style: const TextStyle(fontSize: 11, color: Color(0xFFB0B7C3)),
+          ),
+        ),
+      ),
     );
   }
 }
