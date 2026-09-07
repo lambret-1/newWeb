@@ -3,6 +3,7 @@ import 'dart:io';
 
 import 'package:flutter/material.dart';
 import 'package:path_provider/path_provider.dart';
+import 'package:share_plus/share_plus.dart';
 
 import '../../core/db/database_helper.dart';
 import '../../core/services/adblock_service.dart';
@@ -486,19 +487,23 @@ class _BrowserScreenState extends State<BrowserScreen> {
     }
   }
 
-  /// 新建空白标签页（about:blank）。
-  void _newBlankTab() {
-    if (!_tabManager.canAddMore) {
+  /// 分享当前网页（调用 iOS 系统分享面板）。
+  void _shareCurrentPage() {
+    final tab = _tabManager.activeTab;
+    if (tab == null) return;
+    final url = tab.url;
+    final title = tab.title;
+    if (url.isEmpty || url == 'about:blank') {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
-          content: Text('标签数量已达上限'),
+          content: Text('当前页面无法分享'),
           duration: Duration(seconds: 1),
           behavior: SnackBarBehavior.floating,
         ),
       );
       return;
     }
-    _tabManager.addTab(url: 'about:blank');
+    Share.share(url, subject: title);
   }
 
   @override
@@ -590,7 +595,7 @@ class _BrowserScreenState extends State<BrowserScreen> {
             canGoForward: _canGoForward,
             onBack: () => _currentWebView()?.goBack(),
             onForward: () => _currentWebView()?.goForward(),
-            onNewTab: _newBlankTab,
+            onShare: _shareCurrentPage,
             onTabs: _openTabSwitcher,
             onMore: _openMoreMenu,
             tabCount: _tabManager.count,

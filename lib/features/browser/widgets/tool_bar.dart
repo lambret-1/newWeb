@@ -1,6 +1,8 @@
+import 'package:flutter/cupertino.dart';
 import 'package:flutter/material.dart';
 
-/// 底部工具栏：后退 / 前进 / 新建标签 / 标签页（显示数量） / 更多。
+/// 底部工具栏：后退 / 前进 / 分享 / 标签页（显示数量） / 更多。
+/// 可用状态显示 iOS 蓝色，不可用状态显示灰色。
 class ToolBar extends StatelessWidget {
   const ToolBar({
     super.key,
@@ -8,7 +10,7 @@ class ToolBar extends StatelessWidget {
     required this.canGoForward,
     required this.onBack,
     required this.onForward,
-    required this.onNewTab,
+    required this.onShare,
     required this.onTabs,
     required this.onMore,
     required this.tabCount,
@@ -18,15 +20,15 @@ class ToolBar extends StatelessWidget {
   final bool canGoForward;
   final VoidCallback onBack;
   final VoidCallback onForward;
-  final VoidCallback onNewTab;
+  final VoidCallback onShare;
   final VoidCallback onTabs;
   final VoidCallback onMore;
   final int tabCount;
 
   @override
   Widget build(BuildContext context) {
-    const enabledColor = Color(0xFF374151);
-    const disabledColor = Color(0xFFD1D5DB);
+    const enabledColor = Color(0xFF007AFF); // iOS 系统蓝
+    const disabledColor = Color(0xFFC7C7CC); // iOS 不可用灰
 
     return SafeArea(
       top: false,
@@ -53,11 +55,11 @@ class ToolBar extends StatelessWidget {
               tooltip: '前进',
             ),
             IconButton(
-              iconSize: 26,
-              onPressed: onNewTab,
-              icon: const Icon(Icons.add),
+              iconSize: 24,
+              onPressed: onShare,
+              icon: const Icon(CupertinoIcons.share),
               color: enabledColor,
-              tooltip: '新建标签页',
+              tooltip: '分享',
             ),
             IconButton(
               iconSize: 22,
