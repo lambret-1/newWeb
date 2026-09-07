@@ -449,16 +449,20 @@ class _TabCard extends StatelessWidget {
 
   Widget _buildSnapshot() {
     // 优先读磁盘快照，其次内存快照，最后占位
-    if (tab.snapshotPath != null &&
-        File(tab.snapshotPath!).existsSync()) {
-      return Image.file(
-        File(tab.snapshotPath!),
-        fit: BoxFit.cover,
-        width: double.infinity,
-        gaplessPlayback: true,
-      );
+    if (tab.snapshotPath != null) {
+      final exists = File(tab.snapshotPath!).existsSync();
+      debugPrint('[NW-Snapshot] 卡片 tabId=${tab.id}, snapshotPath=${tab.snapshotPath}, 文件存在=$exists');
+      if (exists) {
+        return Image.file(
+          File(tab.snapshotPath!),
+          fit: BoxFit.cover,
+          width: double.infinity,
+          gaplessPlayback: true,
+        );
+      }
     }
     if (tab.snapshot != null) {
+      debugPrint('[NW-Snapshot] 卡片 tabId=${tab.id}, 使用内存快照, bytes=${tab.snapshot!.length}');
       return Image.memory(
         tab.snapshot!,
         fit: BoxFit.cover,
@@ -466,6 +470,7 @@ class _TabCard extends StatelessWidget {
         gaplessPlayback: true,
       );
     }
+    debugPrint('[NW-Snapshot] 卡片 tabId=${tab.id}, ❌ 无任何快照，显示占位');
     return Container(
       color: const Color(0xFFEFF4FF),
       child: Center(

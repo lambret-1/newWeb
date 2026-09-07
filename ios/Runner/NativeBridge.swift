@@ -227,22 +227,38 @@ public class NativeBridgePlugin: NSObject, FlutterPlugin, QLPreviewControllerDat
   /// 截取目标标签快照：优先按 URL 匹配，其次取可见 WebView。
   /// PNG 写入沙盒 Caches/Snapshots（避免大消息传输），返回 {path, url}。
   private func captureSnapshot(url: String, result: @escaping FlutterResult) {
+    NSLog("[NW-Snapshot] captureSnapshot 入口, url=\(url)")
     guard let webView = findWebView(for: url) else {
+      NSLog("[NW-Snapshot] ❌ findWebView 返回 nil，找不到 WKWebView")
       result(nil)
       return
     }
+    NSLog("[NW-Snapshot] ✅ 找到 WKWebView, webView.url=\(webView.url?.absoluteString ?? "nil"), frame=\(webView.frame)")
     // 缩略图配置：宽度 180pt（匹配多标签卡片宽度），大幅减小文件体积
     let config = WKSnapshotConfiguration()
     config.snapshotWidth = NSNumber(value: 180)
     webView.takeSnapshot(with: config) { [weak self] image, error in
-      guard let self = self, let image = image, error == nil,
-            let data = image.pngData() else {
+      if let error = error {
+        NSLog("[NW-Snapshot] ❌ takeSnapshot 失败, error=\(error.localizedDescription)")
         result(nil)
         return
       }
+      guard let self = self, let image = image else {
+        NSLog("[NW-Snapshot] ❌ takeSnapshot 返回 image=nil")
+        result(nil)
+        return
+      }
+      NSLog("[NW-Snapshot] ✅ takeSnapshot 成功, image.size=\(image.size)")
+      guard let data = image.pngData() else {
+        NSLog("[NW-Snapshot] ❌ pngData 失败")
+        result(nil)
+        return
+      }
+      NSLog("[NW-Snapshot] pngData 成功, data.count=\(data.count) bytes")
       guard let dir = FileManager.default.urls(
         for: .cachesDirectory, in: .userDomainMask
       ).first?.appendingPathComponent("Snapshots", isDirectory: true) else {
+        NSLog("[NW-Snapshot] ❌ 获取 Caches 目录失败")
         result(nil)
         return
       }
@@ -250,8 +266,10 @@ public class NativeBridgePlugin: NSObject, FlutterPlugin, QLPreviewControllerDat
       let file = dir.appendingPathComponent("snapshot_\(Int(Date().timeIntervalSince1970)).png")
       do {
         try data.write(to: file)
+        NSLog("[NW-Snapshot] ✅ 写文件成功, path=\(file.path)")
         result(["path": file.path, "url": webView.url?.absoluteString ?? ""])
       } catch {
+        NSLog("[NW-Snapshot] ❌ 写文件失败, error=\(error.localizedDescription)")
         result(nil)
       }
     }
@@ -260,19 +278,25 @@ public class NativeBridgePlugin: NSObject, FlutterPlugin, QLPreviewControllerDat
   /// 查找当前可见的 WKWebView（Flutter 平台视图）。
   /// 不做 URL 匹配，直接返回第一个未隐藏且有尺寸的 WKWebView。
   private func findWebView(for url: String) -> WKWebView? {
-    for window in UIApplication.shared.windows {
+    NSLog("[NW-Snapshot] findWebView 开始遍历, windows.count=\(UIApplication.shared.windows.count)")
+    for (i, window) in UIApplication.shared.windows.enumerated() {
+      NSLog("[NW-Snapshot] 遍历 window[\(i)], isKeyWindow=\(window.isKeyWindow), rootVC=\(String(describing: window.rootViewController))")
       if let found = findVisibleWebView(in: window) {
+        NSLog("[NW-Snapshot] ✅ 在 window[\(i)] 中找到 WKWebView")
         return found
       }
     }
+    NSLog("[NW-Snapshot] ❌ 所有 window 遍历完毕，未找到 WKWebView")
     return nil
   }
 
   private func findVisibleWebView(in view: UIView) -> WKWebView? {
     if let wv = view as? WKWebView {
+      NSLog("[NW-Snapshot] 发现 WKWebView: isHidden=\(wv.isHidden), frame=\(wv.frame), alpha=\(wv.alpha)")
       if !wv.isHidden && wv.frame.width > 1 && wv.alpha > 0.1 {
         return wv
       }
+      NSLog("[NW-Snapshot] ⚠️ WKWebView 不可见，跳过")
       return nil
     }
     for sub in view.subviews {

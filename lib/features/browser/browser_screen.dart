@@ -476,15 +476,29 @@ class _BrowserScreenState extends State<BrowserScreen> {
   /// 截取当前激活标签的最后浏览快照（无痕模式不截图），写入磁盘持久化。
   /// [delay] 等待页面渲染稳定的毫秒数（页面加载完成后用 400ms，即时截图用 0）。
   Future<void> _refreshSnapshot({int delay = 400}) async {
-    if (_incognito) return;
+    if (_incognito) {
+      debugPrint('[NW-Snapshot] 无痕模式，跳过截图');
+      return;
+    }
     final active = _tabManager.activeTab;
-    if (active == null) return;
+    if (active == null) {
+      debugPrint('[NW-Snapshot] activeTab 为 null，跳过');
+      return;
+    }
+    debugPrint('[NW-Snapshot] _refreshSnapshot 入口, tabId=${active.id}, url=${active.url}, delay=$delay');
     if (delay > 0) await Future.delayed(Duration(milliseconds: delay));
     final current = _tabManager.activeTab;
-    if (current == null || current.id != active.id) return;
+    if (current == null || current.id != active.id) {
+      debugPrint('[NW-Snapshot] 延迟后 tab 已切换，跳过');
+      return;
+    }
     final shot = await NativeBridge.captureSnapshot(active.url);
     if (!mounted) return;
-    if (shot == null) return;
+    if (shot == null) {
+      debugPrint('[NW-Snapshot] ❌ NativeBridge.captureSnapshot 返回 null');
+      return;
+    }
+    debugPrint('[NW-Snapshot] ✅ 原生截图成功, bytes=${shot.length}');
     // 写入稳定磁盘路径（App 重启后仍可读）
     try {
       final dir = await getApplicationSupportDirectory();
@@ -492,8 +506,10 @@ class _BrowserScreenState extends State<BrowserScreen> {
       if (!snapDir.existsSync()) snapDir.createSync(recursive: true);
       final file = File('${snapDir.path}/${active.id}.png');
       await file.writeAsBytes(shot);
+      debugPrint('[NW-Snapshot] ✅ 写入 AppSupport 成功, path=${file.path}, exists=${file.existsSync()}');
       _tabManager.updateSnapshot(active.id, bytes: shot, diskPath: file.path);
-    } catch (_) {
+    } catch (e) {
+      debugPrint('[NW-Snapshot] ❌ 写入 AppSupport 失败, error=$e，仅存内存');
       _tabManager.updateSnapshot(active.id, bytes: shot);
     }
   }

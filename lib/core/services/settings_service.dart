@@ -13,6 +13,7 @@ class SettingsService {
   static const String kTencentSecretKey = 'tencent_secret_key';
   static const String kTranslateMode = 'translate_mode';
   static const String kAutoTranslateDomains = 'auto_translate_domains';
+  static const String kAutoTranslateEnhanced = 'auto_translate_enhanced';
   static const String kAdblockWhitelist = 'adblock_whitelist';
 
   static const Map<String, String> searchEngines = {
@@ -121,11 +122,25 @@ class SettingsService {
   }
 
   /// 域名是否命中自动翻译白名单。
+  /// 增强版开启时，所有域名都自动翻译。
   Future<bool> shouldAutoTranslate(String host) async {
     if (host.isEmpty) return false;
+    final enhanced = await isAutoTranslateEnhanced();
+    if (enhanced) return true;
     final lower = host.toLowerCase();
     final domains = await getAutoTranslateDomains();
     return domains.any((d) => lower == d || lower.endsWith('.$d'));
+  }
+
+  /// 自动翻译增强版开关（开启后所有网页自动翻译）。
+  Future<bool> isAutoTranslateEnhanced() async {
+    final prefs = await SharedPreferences.getInstance();
+    return prefs.getBool(kAutoTranslateEnhanced) ?? false;
+  }
+
+  Future<void> setAutoTranslateEnhanced(bool value) async {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setBool(kAutoTranslateEnhanced, value);
   }
 
   // ---- 广告拦截豁免 ----
