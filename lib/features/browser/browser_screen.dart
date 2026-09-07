@@ -162,8 +162,17 @@ class _BrowserScreenState extends State<BrowserScreen> {
 
   void _openTabSwitcher() {
     FocusScope.of(context).unfocus();
-    // 打开标签切换页前先截当前页快照（后台异步，不阻塞打开）
-    _refreshSnapshot();
+    // 先截当前页快照（最多等 800ms），再打开标签切换页，确保快照最新
+    _refreshSnapshot(delay: 0).timeout(
+      const Duration(milliseconds: 800),
+      onTimeout: () {},
+    ).then((_) {
+      if (!mounted) return;
+      _pushTabSwitcher();
+    });
+  }
+
+  void _pushTabSwitcher() {
     Navigator.of(context)
         .push<String>(
           MaterialPageRoute(
@@ -465,12 +474,12 @@ class _BrowserScreenState extends State<BrowserScreen> {
   }
 
   /// 截取当前激活标签的最后浏览快照（无痕模式不截图），写入磁盘持久化。
-  /// 延迟 400ms 等待页面渲染稳定（对齐 Chrome 快照时机）。
-  Future<void> _refreshSnapshot() async {
+  /// [delay] 等待页面渲染稳定的毫秒数（页面加载完成后用 400ms，即时截图用 0）。
+  Future<void> _refreshSnapshot({int delay = 400}) async {
     if (_incognito) return;
     final active = _tabManager.activeTab;
     if (active == null) return;
-    await Future.delayed(const Duration(milliseconds: 400));
+    if (delay > 0) await Future.delayed(Duration(milliseconds: delay));
     final current = _tabManager.activeTab;
     if (current == null || current.id != active.id) return;
     final shot = await NativeBridge.captureSnapshot(active.url);

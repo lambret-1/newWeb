@@ -54,7 +54,12 @@ iOS 底层为系统 WKWebView（App Store 对浏览器的强制要求），Flutt
 
 ## 更新日志
 
-### v1.0.17（最新 · 快照优化）
+### v1.0.18（最新 · 快照修复）
+- **修复快照完全不显示**：根因是 Swift 端 `findWebView` 用 URL 匹配查找 WKWebView，Flutter 平台视图 URL 与 tab.url 不一致（重定向/尾斜杠）导致匹配失败，返回 nil。改为直接返回第一个可见的 WKWebView，不做 URL 匹配
+- **修复截图时机**：打开标签切换页前先截图（无延迟，最多等 800ms），截图完成后再 push 页面，避免 WebView 被覆盖后截不到内容
+- `_refreshSnapshot` 新增 `delay` 参数，页面加载完成后用 400ms 延迟等渲染稳定，即时截图用 0ms
+
+### v1.0.17（快照优化）
 - **快照缩略图优化**：Swift 端 `takeSnapshot` 使用 `WKSnapshotConfiguration.snapshotWidth = 180pt`，直接生成多标签卡片尺寸的缩略图，文件体积从全屏几百 KB 降到几十 KB，加载更快
 - **截图时机优化**：点击多标签按钮时先触发当前页快照（后台异步不阻塞），确保标签切换页显示最新快照
 - 快照持久化到 `AppSupport/snapshots/{tabId}.png`，App 重启后仍保留

@@ -257,36 +257,26 @@ public class NativeBridgePlugin: NSObject, FlutterPlugin, QLPreviewControllerDat
     }
   }
 
-  /// 查找目标 WKWebView：URL 精确/前缀匹配优先，其次取可见 WebView。
+  /// 查找当前可见的 WKWebView（Flutter 平台视图）。
+  /// 不做 URL 匹配，直接返回第一个未隐藏且有尺寸的 WKWebView。
   private func findWebView(for url: String) -> WKWebView? {
-    var visibleFallback: WKWebView?
-    let target = url.lowercased()
     for window in UIApplication.shared.windows {
-      if let found = matchWebView(in: window, target: target, fallback: &visibleFallback) {
+      if let found = findVisibleWebView(in: window) {
         return found
       }
     }
-    return visibleFallback
+    return nil
   }
 
-  private func matchWebView(
-    in view: UIView,
-    target: String,
-    fallback: inout WKWebView?
-  ) -> WKWebView? {
+  private func findVisibleWebView(in view: UIView) -> WKWebView? {
     if let wv = view as? WKWebView {
-      if !wv.isHidden && wv.frame.width > 1 && wv.alpha > 0.5 {
-        if fallback == nil { fallback = wv }
-        if !target.isEmpty,
-           let current = wv.url?.absoluteString.lowercased(),
-           current == target || current.hasPrefix(target) || target.hasPrefix(current) {
-          return wv
-        }
+      if !wv.isHidden && wv.frame.width > 1 && wv.alpha > 0.1 {
+        return wv
       }
       return nil
     }
     for sub in view.subviews {
-      if let found = matchWebView(in: sub, target: target, fallback: &fallback) {
+      if let found = findVisibleWebView(in: sub) {
         return found
       }
     }
