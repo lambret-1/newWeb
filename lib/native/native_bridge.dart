@@ -103,6 +103,12 @@ class NativeBridge {
     return result == true;
   }
 
+  /// 在 Safari 中打开网页 URL。
+  static Future<bool> openWebURL(String url) async {
+    final result = await invoke('openWebURL', {'url': url});
+    return result == true;
+  }
+
   /// 截取指定标签快照（Swift 直接 base64 返回 PNG，Dart 解码并写入 AppSupport）。
   /// Swift 端日志通过返回值的 logs 字段带回，写入 DebugLogger。
   static Future<Uint8List?> captureSnapshot(String url) async {

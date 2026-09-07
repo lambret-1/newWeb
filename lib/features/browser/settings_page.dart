@@ -1,4 +1,7 @@
+import 'dart:convert';
+
 import 'package:flutter/material.dart';
+import 'package:http/http.dart' as http;
 import 'package:package_info_plus/package_info_plus.dart';
 import 'package:share_plus/share_plus.dart';
 
@@ -346,6 +349,89 @@ class _SettingsPageState extends State<SettingsPage> {
     }
   }
 
+  /// 检查更新：调用 GitHub API 获取最新 Release，比较版本号。
+  Future<void> _checkUpdate() async {
+    _showMessage('正在检查更新...');
+    try {
+      final resp = await http.get(
+        Uri.parse('https://api.github.com/repos/lambret-1/newWeb/releases/latest'),
+      ).timeout(const Duration(seconds: 10));
+      if (resp.statusCode != 200) {
+        _showMessage('检查更新失败');
+        return;
+      }
+      final data = jsonDecode(resp.body) as Map<String, dynamic>;
+      final latestTag = (data['tag_name'] as String? ?? '').replaceFirst('v', '');
+      final releaseUrl = data['html_url'] as String? ?? '';
+      final body = data['body'] as String? ?? '';
+
+      if (latestTag.isEmpty) {
+        _showMessage('检查更新失败');
+        return;
+      }
+
+      final current = _version;
+      final hasUpdate = _compareVersion(latestTag, current) > 0;
+
+      if (!mounted) return;
+      if (!hasUpdate) {
+        _showMessage('已是最新版本 v$current');
+        return;
+      }
+
+      showDialog(
+        context: context,
+        builder: (ctx) => AlertDialog(
+          title: Text('发现新版本 v$latestTag',
+              style: const TextStyle(fontSize: 16)),
+          content: SingleChildScrollView(
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text('当前版本 v$current',
+                    style: const TextStyle(fontSize: 12, color: Color(0xFF9CA3AF))),
+                const SizedBox(height: 8),
+                if (body.isNotEmpty)
+                  Text(body, style: const TextStyle(fontSize: 13)),
+              ],
+            ),
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.of(ctx).pop(),
+              child: const Text('稍后'),
+            ),
+            TextButton(
+              onPressed: () async {
+                Navigator.of(ctx).pop();
+                if (releaseUrl.isNotEmpty) {
+                  await NativeBridge.openWebURL(releaseUrl);
+                }
+              },
+              child: const Text('前往下载'),
+            ),
+          ],
+        ),
+      );
+    } catch (e) {
+      _showMessage('检查更新失败：网络异常');
+    }
+  }
+
+  /// 比较版本号：返回 1 表示 a > b，-1 表示 a < b，0 表示相等。
+  int _compareVersion(String a, String b) {
+    final pa = a.split('.').map(int.tryParse).toList();
+    final pb = b.split('.').map(int.tryParse).toList();
+    for (var i = 0; i < 3; i++) {
+      final na = i < pa.length ? (pa[i] ?? 0) : 0;
+      final nb = i < pb.length ? (pb[i] ?? 0) : 0;
+      if (na > nb) return 1;
+      if (na < nb) return -1;
+    }
+    return 0;
+  }
+
   void _showMessage(String text) {
     ScaffoldMessenger.of(context)
       ..hideCurrentSnackBar()
@@ -554,6 +640,27 @@ class _SettingsPageState extends State<SettingsPage> {
                     ),
                   );
                 },
+              ),
+              ListTile(
+                leading: const Icon(Icons.system_update,
+                    size: 22, color: Color(0xFF374151)),
+                title: const Text('检查更新',
+                    style: TextStyle(fontSize: 15, color: Color(0xFF007AFF))),
+                trailing: const Icon(Icons.chevron_right,
+                    size: 20, color: Color(0xFF9CA3AF)),
+                onTap: _checkUpdate,
+              ),
+              ListTile(
+                leading: const Icon(Icons.code,
+                    size: 22, color: Color(0xFF374151)),
+                title: const Text('项目仓库',
+                    style: TextStyle(fontSize: 15, color: Color(0xFF007AFF))),
+                subtitle: const Text('github.com/lambret-1/newWeb',
+                    style: TextStyle(fontSize: 11, color: Color(0xFF9CA3AF))),
+                trailing: const Icon(Icons.open_in_new,
+                    size: 18, color: Color(0xFF9CA3AF)),
+                onTap: () => NativeBridge.openWebURL(
+                    'https://github.com/lambret-1/newWeb'),
               ),
             ],
           ),

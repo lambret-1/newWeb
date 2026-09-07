@@ -74,6 +74,8 @@ public class NativeBridgePlugin: NSObject, FlutterPlugin, QLPreviewControllerDat
       result(true)
     case "openSystemURL":
       openSystemURL(path: args["path"] as? String ?? "", result: result)
+    case "openWebURL":
+      openWebURL(url: args["url"] as? String ?? "", result: result)
     case "captureSnapshot":
       captureSnapshot(url: args["url"] as? String ?? "", result: result)
     case "clearWebDataTypes":
@@ -200,6 +202,17 @@ public class NativeBridgePlugin: NSObject, FlutterPlugin, QLPreviewControllerDat
   private func openSystemURL(path: String, result: @escaping FlutterResult) {
     let url = URL(fileURLWithPath: path)
     UIApplication.shared.open(url, options: [:]) { success in
+      result(success)
+    }
+  }
+
+  /// 在 Safari 中打开网页 URL。
+  private func openWebURL(url: String, result: @escaping FlutterResult) {
+    guard let nsUrl = URL(string: url) else {
+      result(false)
+      return
+    }
+    UIApplication.shared.open(nsUrl, options: [:]) { success in
       result(success)
     }
   }
