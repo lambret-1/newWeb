@@ -1,5 +1,6 @@
 import 'dart:io';
 
+import '../../../core/services/snapshot_logger.dart';
 import 'package:flutter/material.dart';
 
 import '../tab_manager.dart';
@@ -451,7 +452,7 @@ class _TabCard extends StatelessWidget {
     // 优先读磁盘快照，其次内存快照，最后占位
     if (tab.snapshotPath != null) {
       final exists = File(tab.snapshotPath!).existsSync();
-      debugPrint('[NW-Snapshot] 卡片 tabId=${tab.id}, snapshotPath=${tab.snapshotPath}, 文件存在=$exists');
+      SnapshotLogger.instance.log(' 卡片 tabId=${tab.id}, snapshotPath=${tab.snapshotPath}, 文件存在=$exists');
       if (exists) {
         return Image.file(
           File(tab.snapshotPath!),
@@ -462,7 +463,7 @@ class _TabCard extends StatelessWidget {
       }
     }
     if (tab.snapshot != null) {
-      debugPrint('[NW-Snapshot] 卡片 tabId=${tab.id}, 使用内存快照, bytes=${tab.snapshot!.length}');
+      SnapshotLogger.instance.log(' 卡片 tabId=${tab.id}, 使用内存快照, bytes=${tab.snapshot!.length}');
       return Image.memory(
         tab.snapshot!,
         fit: BoxFit.cover,
@@ -470,7 +471,7 @@ class _TabCard extends StatelessWidget {
         gaplessPlayback: true,
       );
     }
-    debugPrint('[NW-Snapshot] 卡片 tabId=${tab.id}, ❌ 无任何快照，显示占位');
+    SnapshotLogger.instance.log(' 卡片 tabId=${tab.id}, ❌ 无任何快照，显示占位');
     return Container(
       color: const Color(0xFFEFF4FF),
       child: Center(

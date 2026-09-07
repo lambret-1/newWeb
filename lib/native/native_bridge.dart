@@ -4,6 +4,8 @@ import 'dart:io';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart';
 
+import '../core/services/snapshot_logger.dart';
+
 /// 原生能力桥（MethodChannel + EventChannel）。
 /// iOS 侧实现：NativeBridgePlugin（缓存 / 内容拦截器 / 下载 / 预览 / DNS）。
 class NativeBridge {
@@ -96,14 +98,31 @@ class NativeBridge {
   }
 
   /// 截取指定标签快照（Swift 写 PNG 文件，Dart 读文件避免大消息传输）。
+  /// Swift 端日志通过返回值的 logs 字段带回，写入 SnapshotLogger。
   static Future<Uint8List?> captureSnapshot(String url) async {
     final value = await invoke('captureSnapshot', {'url': url});
-    if (value is! Map) return null;
+    if (value is! Map) {
+      SnapshotLogger.instance.log('NativeBridge 返回值不是 Map: $value');
+      return null;
+    }
+    // 提取 Swift 端日志
+    final rawLogs = value['logs'];
+    if (rawLogs is List) {
+      for (final l in rawLogs) {
+        if (l is String) SnapshotLogger.instance.log('[Swift] $l');
+      }
+    }
     final path = value['path'] as String?;
-    if (path == null) return null;
+    if (path == null) {
+      SnapshotLogger.instance.log('NativeBridge 返回 path=null（截图失败）');
+      return null;
+    }
     try {
-      return await File(path).readAsBytes();
-    } catch (_) {
+      final bytes = await File(path).readAsBytes();
+      SnapshotLogger.instance.log('Dart 读取截图文件成功, bytes=${bytes.length}');
+      return bytes;
+    } catch (e) {
+      SnapshotLogger.instance.log('Dart 读取截图文件失败: $e');
       return null;
     }
   }
