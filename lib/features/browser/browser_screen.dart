@@ -1,8 +1,12 @@
 import 'dart:async';
+import 'dart:convert';
 import 'dart:io';
 
 import '../../core/services/debug_logger.dart';
 import 'package:flutter/material.dart';
+import 'package:http/http.dart' as http;
+import 'package:package_info_plus/package_info_plus.dart';
+import 'package:path/path.dart' as p;
 import 'package:path_provider/path_provider.dart';
 import 'package:share_plus/share_plus.dart';
 
@@ -35,7 +39,7 @@ class BrowserScreen extends StatefulWidget {
   State<BrowserScreen> createState() => _BrowserScreenState();
 }
 
-class _BrowserScreenState extends State<BrowserScreen> {
+class _BrowserScreenState extends State<BrowserScreen> with WidgetsBindingObserver {
   final TextEditingController _addressController = TextEditingController();
   final TabManager _tabManager = TabManager();
   final Map<String, GlobalKey<WebViewPageState>> _webViewKeys = {};
@@ -49,6 +53,7 @@ class _BrowserScreenState extends State<BrowserScreen> {
   @override
   void initState() {
     super.initState();
+    WidgetsBinding.instance.addObserver(this);
     _tabManager.addListener(_onTabsChanged);
     unawaited(_initTabs());
     WidgetsBinding.instance.addPostFrameCallback((_) {
@@ -56,9 +61,19 @@ class _BrowserScreenState extends State<BrowserScreen> {
       AdBlockService.instance.init();
       DownloadService.instance.ensureListening();
       DownloadService.instance.completedTask.addListener(_onDownloadCompleted);
+      // 启动 3 秒后自动检查更新
+      Future.delayed(const Duration(seconds: 3), _autoCheckUpdate);
     });
     _loadIncognito();
     _listenNativeEvents();
+  }
+
+  /// 前台/后台生命周期变化：回到前台时自动检查更新。
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state == AppLifecycleState.resumed) {
+      _autoCheckUpdate();
+    }
   }
 
   /// 下载完成全局弹窗提示。
@@ -178,6 +193,7 @@ class _BrowserScreenState extends State<BrowserScreen> {
     _nativeSub?.cancel();
     _tabManager.removeListener(_onTabsChanged);
     DownloadService.instance.completedTask.removeListener(_onDownloadCompleted);
+    WidgetsBinding.instance.removeObserver(this);
     _tabManager.dispose();
     _addressController.dispose();
     super.dispose();
@@ -275,6 +291,144 @@ class _BrowserScreenState extends State<BrowserScreen> {
             _refreshSnapshot();
           }
         });
+  }
+
+  /// 自动检查更新：前台时触发，检查间隔 1 小时，跳过用户已忽略的版本。
+  Future<void> _autoCheckUpdate() async {
+    if (!mounted) return;
+    final settings = SettingsService.instance;
+    final enabled = await settings.isAutoUpdateCheckEnabled();
+    if (!enabled) return;
+
+    final lastCheck = await settings.getLastUpdateCheck();
+    final now = DateTime.now().millisecondsSinceEpoch;
+    // 检查间隔 1 小时
+    if (now - lastCheck < 3600 * 1000) return;
+
+    await settings.setLastUpdateCheck(now);
+
+    try {
+      final resp = await http.get(
+        Uri.parse('https://api.github.com/repos/lambret-1/newWeb/releases/latest'),
+      ).timeout(const Duration(seconds: 10));
+      if (resp.statusCode != 200) return;
+
+      final data = jsonDecode(resp.body) as Map<String, dynamic>;
+      final latestTag = (data['tag_name'] as String? ?? '').replaceFirst('v', '');
+      if (latestTag.isEmpty) return;
+
+      final info = await PackageInfo.fromPlatform();
+      final current = info.version;
+      if (_compareVersion(latestTag, current) <= 0) return;
+
+      // 检查是否是用户跳过的版本
+      final skipped = await settings.getUpdateSkippedVersion();
+      if (skipped == latestTag) return;
+
+      final releaseUrl = data['html_url'] as String? ?? '';
+      final body = data['body'] as String? ?? '';
+      final assets = (data['assets'] as List?) ?? [];
+      final ipaUrl = assets
+          .whereType<Map<String, dynamic>>()
+          .where((a) => (a['name'] as String? ?? '').endsWith('.ipa'))
+          .map((a) => a['browser_download_url'] as String?)
+          .whereType<String>()
+          .firstOrNull;
+
+      if (!mounted) return;
+      _showUpdateDialog(latestTag, current, body, releaseUrl, ipaUrl);
+    } catch (_) {
+      // 静默失败，不打扰用户
+    }
+  }
+
+  /// 比较版本号：1 表示 a > b，-1 表示 a < b，0 表示相等。
+  int _compareVersion(String a, String b) {
+    final pa = a.split('.').map(int.tryParse).toList();
+    final pb = b.split('.').map(int.tryParse).toList();
+    for (var i = 0; i < 3; i++) {
+      final na = i < pa.length ? (pa[i] ?? 0) : 0;
+      final nb = i < pb.length ? (pb[i] ?? 0) : 0;
+      if (na > nb) return 1;
+      if (na < nb) return -1;
+    }
+    return 0;
+  }
+
+  /// 更新提示弹窗。
+  void _showUpdateDialog(
+    String latestVersion,
+    String currentVersion,
+    String body,
+    String releaseUrl,
+    String? ipaUrl,
+  ) {
+    showDialog(
+      context: context,
+      barrierDismissible: false,
+      builder: (ctx) => AlertDialog(
+        title: const Text('发现新版本', style: TextStyle(fontSize: 16)),
+        content: SingleChildScrollView(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text('最新版本 v$latestVersion（当前 v$currentVersion）',
+                  style: const TextStyle(fontSize: 13, color: Color(0xFF007AFF))),
+              const SizedBox(height: 8),
+              if (body.isNotEmpty)
+                Text(body, style: const TextStyle(fontSize: 13)),
+            ],
+          ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () async {
+              Navigator.of(ctx).pop();
+              await SettingsService.instance.setUpdateSkippedVersion(latestVersion);
+            },
+            child: const Text('稍后提醒我'),
+          ),
+          TextButton(
+            onPressed: () async {
+              Navigator.of(ctx).pop();
+              if (ipaUrl != null) {
+                await _downloadAndInstallIPA(ipaUrl, latestVersion);
+              } else if (releaseUrl.isNotEmpty) {
+                await NativeBridge.openWebURL(releaseUrl);
+              }
+            },
+            child: const Text('立即更新'),
+          ),
+        ],
+      ),
+    );
+  }
+
+  /// 下载 IPA 并唤起全能签等签名工具安装。
+  Future<void> _downloadAndInstallIPA(String url, String version) async {
+    _showMessage('正在下载 v$version...');
+    try {
+      final resp = await http.get(Uri.parse(url)).timeout(
+        const Duration(minutes: 5),
+      );
+      if (resp.statusCode != 200) {
+        _showMessage('下载失败，请前往 Release 页面手动下载');
+        if (url.isNotEmpty) await NativeBridge.openWebURL(url);
+        return;
+      }
+      final tmp = await getTemporaryDirectory();
+      final path = p.join(tmp.path, 'NewWeb-v$version.ipa');
+      await File(path).writeAsBytes(resp.bodyBytes);
+      _showMessage('下载完成，正在唤起安装工具...');
+      await Future.delayed(const Duration(milliseconds: 500));
+      final ok = await NativeBridge.openSystemURL(path);
+      if (!ok) {
+        _showMessage('无法打开，请手动安装');
+      }
+    } catch (e) {
+      _showMessage('下载失败：网络异常');
+    }
   }
 
   void _openMoreMenu() {

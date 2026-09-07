@@ -149,3 +149,29 @@ jobs:
           name: ${{ env.APP_NAME }}-${{ steps.detect.outputs.has_cert == 'true' && 'signed' || 'unsigned' }}-ipa
           path: ${{ env.APP_NAME }}.ipa
           retention-days: 90
+
+      # ------------------------------------------------------------
+      # 自动创建 GitHub Release 并上传 IPA（供 App 内检查更新下载）
+      # ------------------------------------------------------------
+      - name: 读取版本号
+        id: version
+        run: |
+          VER=$(grep '^version:' pubspec.yaml | head -1 | sed 's/version: *//' | sed 's/+.*//')
+          echo "version=$VER" >> $GITHUB_OUTPUT
+          echo "版本号: v$VER"
+
+      - name: 创建 Release 并上传 IPA
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: v${{ steps.version.outputs.version }}
+          name: 未来浏览器 v${{ steps.version.outputs.version }}
+          body: |
+            ## 未来浏览器 v${{ steps.version.outputs.version }}
+
+            自动构建发布。请查看仓库 README.md 获取详细更新日志。
+
+            **安装方式**：下载下方 IPA 文件后，用全能签 / TrollStore / Sideloadly 等工具签名安装。
+          files: ${{ env.APP_NAME }}.ipa
+          fail_on_unmatched_files: true
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

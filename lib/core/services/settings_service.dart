@@ -15,6 +15,9 @@ class SettingsService {
   static const String kAutoTranslateDomains = 'auto_translate_domains';
   static const String kAutoTranslateEnhanced = 'auto_translate_enhanced';
   static const String kAdblockWhitelist = 'adblock_whitelist';
+  static const String kAutoUpdateCheck = 'auto_update_check';
+  static const String kLastUpdateCheck = 'last_update_check';
+  static const String kUpdateSkippedVersion = 'update_skipped_version';
 
   static const Map<String, String> searchEngines = {
     'baidu': '百度',
@@ -156,5 +159,43 @@ class SettingsService {
   Future<void> setAdblockWhitelist(List<String> domains) async {
     final prefs = await SharedPreferences.getInstance();
     await prefs.setStringList(kAdblockWhitelist, domains);
+  }
+
+  // ---------- 自动更新检测 ----------
+
+  Future<bool> isAutoUpdateCheckEnabled() async {
+    final prefs = await SharedPreferences.getInstance();
+    return prefs.getBool(kAutoUpdateCheck) ?? true;
+  }
+
+  Future<void> setAutoUpdateCheckEnabled(bool value) async {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setBool(kAutoUpdateCheck, value);
+  }
+
+  /// 上次检查更新的时间戳（毫秒）。
+  Future<int> getLastUpdateCheck() async {
+    final prefs = await SharedPreferences.getInstance();
+    return prefs.getInt(kLastUpdateCheck) ?? 0;
+  }
+
+  Future<void> setLastUpdateCheck(int millis) async {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setInt(kLastUpdateCheck, millis);
+  }
+
+  /// 用户跳过的版本号（"稍后提醒我"后记录，该版本不再提示）。
+  Future<String?> getUpdateSkippedVersion() async {
+    final prefs = await SharedPreferences.getInstance();
+    return prefs.getString(kUpdateSkippedVersion);
+  }
+
+  Future<void> setUpdateSkippedVersion(String? version) async {
+    final prefs = await SharedPreferences.getInstance();
+    if (version == null) {
+      await prefs.remove(kUpdateSkippedVersion);
+    } else {
+      await prefs.setString(kUpdateSkippedVersion, version);
+    }
   }
 }

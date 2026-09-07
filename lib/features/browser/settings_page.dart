@@ -28,6 +28,7 @@ class _SettingsPageState extends State<SettingsPage> {
   String _translateMode = 'auto';
   List<String> _autoTranslateDomains = [];
   String _version = '';
+  bool _autoUpdateCheck = true;
 
   @override
   void initState() {
@@ -48,6 +49,7 @@ class _SettingsPageState extends State<SettingsPage> {
     final hasTencent = (await settings.getTencentSecretId()) != null;
     final mode = await settings.getTranslateMode();
     final domains = await settings.getAutoTranslateDomains();
+    final autoUpdate = await settings.isAutoUpdateCheckEnabled();
     if (!mounted) return;
     setState(() {
       _searchEngine = engine;
@@ -56,6 +58,7 @@ class _SettingsPageState extends State<SettingsPage> {
       _hasTencent = hasTencent;
       _translateMode = mode;
       _autoTranslateDomains = domains;
+      _autoUpdateCheck = autoUpdate;
     });
   }
 
@@ -639,6 +642,18 @@ class _SettingsPageState extends State<SettingsPage> {
                       builder: (_) => const DebugLogPage(),
                     ),
                   );
+                },
+              ),
+              SwitchListTile(
+                secondary: const Icon(Icons.auto_awesome,
+                    size: 22, color: Color(0xFF374151)),
+                title: const Text('打开App自动检测更新', style: TextStyle(fontSize: 15)),
+                subtitle: const Text('前台时自动检查新版本',
+                    style: TextStyle(fontSize: 11, color: Color(0xFF9CA3AF))),
+                value: _autoUpdateCheck,
+                onChanged: (value) async {
+                  setState(() => _autoUpdateCheck = value);
+                  await SettingsService.instance.setAutoUpdateCheckEnabled(value);
                 },
               ),
               ListTile(
