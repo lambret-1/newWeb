@@ -3,6 +3,7 @@ import 'dart:convert';
 import 'dart:io';
 
 import '../../core/services/debug_logger.dart';
+import '../../core/services/site_security_manager.dart';
 import 'package:flutter/material.dart';
 import 'package:http/http.dart' as http;
 import 'package:package_info_plus/package_info_plus.dart';
@@ -28,6 +29,7 @@ import 'webview_page.dart';
 import 'widgets/address_bar.dart';
 import 'widgets/gesture_layer.dart';
 import 'widgets/progress_bar.dart';
+import 'widgets/site_security_sheet.dart';
 import 'widgets/tab_switcher.dart';
 import 'widgets/tool_bar.dart';
 import 'widgets/top_tab_bar.dart';
@@ -49,6 +51,9 @@ class _BrowserScreenState extends State<BrowserScreen> with WidgetsBindingObserv
   bool _canGoBack = false;
   bool _canGoForward = false;
   bool _incognito = false;
+  bool _isLoading = false;
+  SecurityLevel _securityLevel = SecurityLevel.secure;
+  SiteSecurityConfig? _siteConfig;
   StreamSubscription<Map<String, dynamic>>? _nativeSub;
 
   @override
@@ -204,6 +209,7 @@ class _BrowserScreenState extends State<BrowserScreen> with WidgetsBindingObserv
     final active = _tabManager.activeTab;
     if (active != null) {
       _addressController.text = active.url;
+      _updateSecurityState(active.url);
     }
   }
 
@@ -783,6 +789,90 @@ class _BrowserScreenState extends State<BrowserScreen> with WidgetsBindingObserv
     _refreshSnapshot();
   }
 
+  /// 根据 URL 更新地址栏安全锁头状态。
+  Future<void> _updateSecurityState(String url) async {
+    final level = url.startsWith('https://')
+        ? SecurityLevel.secure
+        : SecurityLevel.insecure;
+    final domain = SiteSecurityManager.domainOf(url);
+    final config = await SiteSecurityManager.instance.getConfig(domain);
+    if (!mounted) return;
+    setState(() {
+      _isLoading = false;
+      _securityLevel = level;
+      _siteConfig = config;
+    });
+  }
+
+  /// 点击锁头弹出底部安全详情面板。
+  void _openSecuritySheet() {
+    final activeTab = _tabManager.activeTab;
+    if (activeTab == null) return;
+    final domain = SiteSecurityManager.domainOf(activeTab.url);
+    final config = _siteConfig ?? SiteSecurityConfig(domain: domain);
+
+    showModalBottomSheet<void>(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: Colors.transparent,
+      builder: (sheetContext) => DraggableScrollableSheet(
+        initialChildSize: 0.7,
+        minChildSize: 0.4,
+        maxChildSize: 0.85,
+        expand: false,
+        builder: (context, scrollController) => SiteSecuritySheet(
+          domain: domain,
+          level: _securityLevel,
+          isTabLocked: activeTab.isLocked,
+          adBlockCount: 0,
+          dnsEnabled: true,
+          config: config,
+          onToggleLock: (locked) {
+            _tabManager.setLocked(activeTab.id, locked);
+          },
+          onForceHttps: (enabled) async {
+            final newConfig = SiteSecurityConfig(domain: domain)
+              ..forceHttps = enabled
+              ..camera = config.camera
+              ..microphone = config.microphone
+              ..location = config.location
+              ..photo = config.photo
+              ..popup = config.popup;
+            await SiteSecurityManager.instance.saveConfig(newConfig);
+            setState(() => _siteConfig = newConfig);
+          },
+          onCameraChanged: (p) => _updatePermission(domain, config, (c) => c.camera = p),
+          onMicrophoneChanged: (p) => _updatePermission(domain, config, (c) => c.microphone = p),
+          onLocationChanged: (p) => _updatePermission(domain, config, (c) => c.location = p),
+          onPhotoChanged: (p) => _updatePermission(domain, config, (c) => c.photo = p),
+          onPopupChanged: (p) => _updatePermission(domain, config, (c) => c.popup = p),
+          onClearSiteData: () {
+            SiteSecurityManager.instance.clearDomain(domain);
+            _showMessage('已清除 $domain 的配置');
+          },
+        ),
+      ),
+    );
+  }
+
+  /// 更新站点权限并保存。
+  Future<void> _updatePermission(
+    String domain,
+    SiteSecurityConfig old,
+    void Function(SiteSecurityConfig) mutate,
+  ) async {
+    final newConfig = SiteSecurityConfig(domain: domain)
+      ..forceHttps = old.forceHttps
+      ..camera = old.camera
+      ..microphone = old.microphone
+      ..location = old.location
+      ..photo = old.photo
+      ..popup = old.popup;
+    mutate(newConfig);
+    await SiteSecurityManager.instance.saveConfig(newConfig);
+    setState(() => _siteConfig = newConfig);
+  }
+
   /// 截取当前激活标签的最后浏览快照（无痕模式不截图），写入磁盘持久化。
   /// [delay] 等待页面渲染稳定的毫秒数（页面加载完成后用 400ms，即时截图用 0）。
   Future<void> _refreshSnapshot({int delay = 400}) async {
@@ -852,10 +942,20 @@ class _BrowserScreenState extends State<BrowserScreen> with WidgetsBindingObserv
             bottom: false,
             child: Column(
               children: [
-                AddressBar(
-                  controller: _addressController,
-                  onSubmit: _submit,
-                  onReload: () => _currentWebView()?.reload(),
+                ListenableBuilder(
+                  listenable: _tabManager,
+                  builder: (context, _) {
+                    final activeTab = _tabManager.activeTab;
+                    return AddressBar(
+                      controller: _addressController,
+                      onSubmit: _submit,
+                      onReload: () => _currentWebView()?.reload(),
+                      securityLevel: _securityLevel,
+                      isLoading: _isLoading,
+                      isTabLocked: activeTab?.isLocked ?? false,
+                      onTapLock: _openSecuritySheet,
+                    );
+                  },
                 ),
                 ProgressBar(progress: _progress),
                 ListenableBuilder(
@@ -949,9 +1049,15 @@ class _BrowserScreenState extends State<BrowserScreen> with WidgetsBindingObserv
                         },
                         onPageStarted: (url) {
                           _tabManager.updateTab(tabId, url: url, isLoading: true);
+                          if (tabId == _tabManager.activeTabId) {
+                            setState(() => _isLoading = true);
+                          }
                         },
                         onPageFinished: (url) {
                           _onPageFinished(tabId, url);
+                          if (tabId == _tabManager.activeTabId) {
+                            _updateSecurityState(url);
+                          }
                         },
                         onTitleChanged: (title) {
                           _tabManager.updateTab(tabId, title: title);

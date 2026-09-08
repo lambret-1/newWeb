@@ -1,22 +1,56 @@
 import 'package:flutter/material.dart';
 
-/// 顶部地址栏：iOS 风格，输入网址/搜索词，右侧刷新按钮。
+import 'site_security_sheet.dart';
+
+/// 顶部地址栏：iOS 风格，左侧安全锁头可点击，右侧刷新按钮。
 class AddressBar extends StatelessWidget {
   const AddressBar({
     super.key,
     required this.controller,
     required this.onSubmit,
     required this.onReload,
+    required this.securityLevel,
+    required this.isLoading,
+    required this.isTabLocked,
+    required this.onTapLock,
   });
 
   final TextEditingController controller;
   final ValueChanged<String> onSubmit;
   final VoidCallback onReload;
+  final SecurityLevel securityLevel;
+  final bool isLoading;
+  final bool isTabLocked;
+  final VoidCallback onTapLock;
 
-  /// 根据 URL 判断是否 HTTPS，显示对应图标。
-  bool get _isHttps {
-    final text = controller.text.trim();
-    return text.startsWith('https://');
+  /// 锁头图标颜色。
+  Color get _lockColor {
+    switch (securityLevel) {
+      case SecurityLevel.secure:
+        return const Color(0xFF34C759);
+      case SecurityLevel.weak:
+      case SecurityLevel.mixed:
+      case SecurityLevel.insecure:
+        return const Color(0xFFFF9500);
+      case SecurityLevel.danger:
+        return const Color(0xFFFF3B30);
+    }
+  }
+
+  /// 锁头图标。
+  IconData get _lockIcon {
+    if (isLoading) return Icons.refresh;
+    switch (securityLevel) {
+      case SecurityLevel.secure:
+        return Icons.lock;
+      case SecurityLevel.weak:
+        return Icons.lock_outline;
+      case SecurityLevel.mixed:
+      case SecurityLevel.insecure:
+        return Icons.warning_amber;
+      case SecurityLevel.danger:
+        return Icons.error;
+    }
   }
 
   @override
@@ -39,15 +73,47 @@ class AddressBar extends StatelessWidget {
         ),
         child: Row(
           children: [
-            // 左侧图标：HTTPS 锁 / 普通搜索
-            Padding(
-              padding: const EdgeInsets.only(left: 10, right: 6),
-              child: Icon(
-                _isHttps ? Icons.lock : Icons.search,
-                size: 14,
-                color: _isHttps
-                    ? const Color(0xFF34C759)
-                    : const Color(0xFF8E8E93),
+            // 左侧安全锁头（可点击）
+            GestureDetector(
+              onTap: onTapLock,
+              behavior: HitTestBehavior.opaque,
+              child: Padding(
+                padding: const EdgeInsets.only(left: 10, right: 6),
+                child: Stack(
+                  clipBehavior: Clip.none,
+                  children: [
+                    Icon(
+                      _lockIcon,
+                      size: 14,
+                      color: _lockColor,
+                    ),
+                    // 加载中旋转动画
+                    if (isLoading)
+                      const Positioned.fill(
+                        child: Center(
+                          child: SizedBox(
+                            width: 14,
+                            height: 14,
+                            child: CircularProgressIndicator(
+                              strokeWidth: 1.5,
+                              color: Color(0xFF007AFF),
+                            ),
+                          ),
+                        ),
+                      ),
+                    // 标签锁定角标
+                    if (isTabLocked)
+                      const Positioned(
+                        right: -4,
+                        top: -4,
+                        child: Icon(
+                          Icons.lock,
+                          size: 8,
+                          color: Color(0xFFFF9500),
+                        ),
+                      ),
+                  ],
+                ),
               ),
             ),
             // 输入框
