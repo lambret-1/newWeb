@@ -98,23 +98,27 @@ jobs:
         run: |
           # 先生成 Xcode 项目
           flutter build ios --release --no-codesign --config-only
-          # 用 xcodebuild 直接构建，强制无签名
+          # 用 xcodebuild 直接构建，强制无签名，指定输出目录
           cd ios
           xcodebuild -workspace Runner.xcworkspace \
             -scheme Runner \
             -configuration Release \
             -destination 'generic/platform=iOS' \
+            -derivedDataPath ../build/ios/DerivedData \
             CODE_SIGNING_ALLOWED=NO \
             CODE_SIGNING_REQUIRED=NO \
             CODE_SIGN_IDENTITY="" \
             build
           cd ..
-          # 验证 Runner.app
-          if [ ! -d "build/ios/iphoneos/Runner.app" ]; then
+          # 复制构建产物到标准目录
+          APP_PATH="build/ios/DerivedData/Build/Products/Release-iphoneos/Runner.app"
+          if [ ! -d "$APP_PATH" ]; then
             echo "::error::未找到 Runner.app"
-            ls -la build/ios/ 2>/dev/null || true
+            find build/ios -name "Runner.app" -type d 2>/dev/null || true
             exit 1
           fi
+          mkdir -p build/ios/iphoneos
+          cp -R "$APP_PATH" build/ios/iphoneos/
           echo "构建成功"
 
       - name: 正式签名（签名模式）
