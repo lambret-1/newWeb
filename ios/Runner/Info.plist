@@ -12,6 +12,10 @@
 		<key>NSAllowsArbitraryLoadsInWebContent</key>
 		<true/>
 	</dict>
+	<key>NSPhotoLibraryAddUsageDescription</key>
+	<string>需要访问相册以保存网页长截图</string>
+	<key>NSPhotoLibraryUsageDescription</key>
+	<string>需要访问相册以保存和分享网页截图</string>
 	<key>CFBundleDevelopmentRegion</key>
 	<string>$(DEVELOPMENT_LANGUAGE)</string>
 	<key>CFBundleDisplayName</key>

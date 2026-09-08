@@ -144,4 +144,35 @@ class NativeBridge {
     final value = await invoke('generateDNSProfile');
     return value is String ? value : null;
   }
+
+  /// 长截图：滚动拼接整页网页，返回 base64 图片数据。
+  static Future<String?> captureFullPage(String url) async {
+    final value = await invoke('captureFullPage', {'url': url});
+    if (value is! Map) return null;
+    final rawLogs = value['logs'];
+    if (rawLogs is List) {
+      for (final l in rawLogs) {
+        if (l is String) DebugLogger.instance.log('[Swift] $l');
+      }
+    }
+    return value['base64'] as String?;
+  }
+
+  /// 保存 base64 图片到系统相册。
+  static Future<Map<String, dynamic>?> saveImageToGallery(String base64) async {
+    final value = await invoke('saveImageToGallery', {'base64': base64});
+    return value is Map ? Map<String, dynamic>.from(value) : null;
+  }
+
+  /// 分享图片（调用系统分享面板）。
+  static Future<Map<String, dynamic>?> shareImage(String base64) async {
+    final value = await invoke('shareImage', {'base64': base64});
+    return value is Map ? Map<String, dynamic>.from(value) : null;
+  }
+
+  /// 生成 WebClip 配置文件并弹出安装（添加到主屏幕）。
+  static Future<Map<String, dynamic>?> generateWebClip(String url, String title) async {
+    final value = await invoke('generateWebClip', {'url': url, 'title': title});
+    return value is Map ? Map<String, dynamic>.from(value) : null;
+  }
 }

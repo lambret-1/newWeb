@@ -79,6 +79,18 @@ public class NativeBridgePlugin: NSObject, FlutterPlugin, QLPreviewControllerDat
       openWebURL(url: args["url"] as? String ?? "", result: result)
     case "captureSnapshot":
       captureSnapshot(url: args["url"] as? String ?? "", result: result)
+    case "captureFullPage":
+      captureFullPage(url: args["url"] as? String ?? "", result: result)
+    case "saveImageToGallery":
+      saveImageToGallery(base64: args["base64"] as? String ?? "", result: result)
+    case "shareImage":
+      shareImage(base64: args["base64"] as? String ?? "", result: result)
+    case "generateWebClip":
+      generateWebClip(
+        url: args["url"] as? String ?? "",
+        title: args["title"] as? String ?? "",
+        result: result
+      )
     case "clearWebDataTypes":
       let types = args["types"] as? [String] ?? []
       clearWebDataTypes(types, result: result)
@@ -293,6 +305,197 @@ public class NativeBridgePlugin: NSObject, FlutterPlugin, QLPreviewControllerDat
       let base64 = data.base64EncodedString()
       slog("✅ base64 编码成功, base64.count=\(base64.count)")
       result(["base64": base64, "url": webView.url?.absoluteString ?? "", "logs": logs])
+    }
+  }
+
+  // MARK: - 长截图（滚动拼接整页）
+
+  private func captureFullPage(url: String, result: @escaping FlutterResult) {
+    var logs: [String] = []
+    func slog(_ msg: String) {
+      NSLog("[NW-FullPage] \(msg)")
+      logs.append(msg)
+    }
+    slog("captureFullPage 入口, url=\(url)")
+    guard let webView = findWebView(for: url, logs: &logs) else {
+      slog("❌ 找不到 WKWebView")
+      result(["error": "找不到 WebView", "logs": logs])
+      return
+    }
+
+    webView.evaluateJavaScript("document.body.scrollHeight") { [weak self] heightObj, _ in
+      guard let self = self else { return }
+      let pageHeight = (heightObj as? CGFloat) ?? webView.scrollView.contentSize.height
+      let viewHeight = webView.bounds.height
+      slog("页面高度=\(pageHeight), 可视高度=\(viewHeight)")
+
+      if pageHeight <= viewHeight {
+        let config = WKSnapshotConfiguration()
+        config.snapshotWidth = NSNumber(value: webView.bounds.width)
+        webView.takeSnapshot(with: config) { image, _ in
+          guard let image = image, let data = image.pngData() else {
+            result(["error": "截图失败", "logs": logs])
+            return
+          }
+          result(["base64": data.base64EncodedString(), "logs": logs])
+        }
+        return
+      }
+
+      let originalOffset = webView.scrollView.contentOffset
+      var screenshots: [UIImage] = []
+      var currentY: CGFloat = 0
+      let segmentHeight = viewHeight
+
+      func captureNextSegment() {
+        if currentY >= pageHeight {
+          self.stitchImages(screenshots, width: webView.bounds.width, totalHeight: pageHeight) { stitched in
+            webView.scrollView.setContentOffset(originalOffset, animated: false)
+            guard let stitched = stitched, let data = stitched.pngData() else {
+              result(["error": "拼接失败", "logs": logs])
+              return
+            }
+            slog("✅ 长截图完成, 尺寸=\(stitched.size), 共\(screenshots.count)段")
+            result(["base64": data.base64EncodedString(), "logs": logs])
+          }
+          return
+        }
+
+        webView.scrollView.setContentOffset(CGPoint(x: 0, y: currentY), animated: false)
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.15) {
+          let config = WKSnapshotConfiguration()
+          config.snapshotWidth = NSNumber(value: webView.bounds.width)
+          webView.takeSnapshot(with: config) { image, _ in
+            if let image = image {
+              screenshots.append(image)
+              slog("截取第\(screenshots.count)段, y=\(currentY)")
+            }
+            currentY += segmentHeight
+            captureNextSegment()
+          }
+        }
+      }
+      captureNextSegment()
+    }
+  }
+
+  private func stitchImages(_ images: [UIImage], width: CGFloat, totalHeight: CGFloat, completion: @escaping (UIImage?) -> Void) {
+    guard !images.isEmpty else { completion(nil); return }
+    let scale = UIScreen.main.scale
+    let size = CGSize(width: width * scale, height: totalHeight * scale)
+    UIGraphicsBeginImageContextWithOptions(size, false, scale)
+    var y: CGFloat = 0
+    for img in images {
+      let drawHeight = min(img.size.height, totalHeight - y)
+      img.draw(in: CGRect(x: 0, y: y * scale, width: width * scale, height: drawHeight * scale))
+      y += img.size.height
+      if y >= totalHeight { break }
+    }
+    let result = UIGraphicsGetImageFromCurrentImageContext()
+    UIGraphicsEndImageContext()
+    completion(result)
+  }
+
+  // MARK: - 保存到相册
+
+  private func saveImageToGallery(base64: String, result: @escaping FlutterResult) {
+    guard let data = Data(base64Encoded: base64),
+          let image = UIImage(data: data) else {
+      result(["success": false, "error": "图片解码失败"])
+      return
+    }
+    UIImageWriteToSavedPhotosAlbum(image, nil, nil, nil)
+    result(["success": true])
+  }
+
+  // MARK: - 分享图片
+
+  private func shareImage(base64: String, result: @escaping FlutterResult) {
+    guard let data = Data(base64Encoded: base64),
+          let image = UIImage(data: data) else {
+      result(["success": false, "error": "图片解码失败"])
+      return
+    }
+    DispatchQueue.main.async {
+      let activityVC = UIActivityViewController(activityItems: [image], applicationActivities: nil)
+      if let popover = activityVC.popoverPresentationController {
+        popover.sourceView = UIApplication.shared.keyWindow?.rootViewController?.view
+        popover.sourceRect = CGRect(x: UIScreen.main.bounds.midX, y: UIScreen.main.bounds.midY, width: 0, height: 0)
+        popover.permittedArrowDirections = []
+      }
+      UIApplication.shared.keyWindow?.rootViewController?.present(activityVC, animated: true)
+      result(["success": true])
+    }
+  }
+
+  // MARK: - 生成 WebClip（添加到主屏幕）
+
+  private func generateWebClip(url: String, title: String, result: @escaping FlutterResult) {
+    let uuid = UUID().uuidString
+    let uuid2 = UUID().uuidString
+    let xml = """
+    <?xml version="1.0" encoding="UTF-8"?>
+    <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+    <plist version="1.0">
+    <dict>
+      <key>PayloadContent</key>
+      <array>
+        <dict>
+          <key>FullScreen</key>
+          <true/>
+          <key>IsRemovable</key>
+          <true/>
+          <key>Label</key>
+          <string>\(title)</string>
+          <key>PayloadDescription</key>
+          <string>添加 \(title) 到主屏幕</string>
+          <key>PayloadDisplayName</key>
+          <string>\(title)</string>
+          <key>PayloadIdentifier</key>
+          <string>com.newweb.webclip.\(uuid)</string>
+          <key>PayloadOrganization</key>
+          <string>未来浏览器</string>
+          <key>PayloadType</key>
+          <string>com.apple.webClip.managed</string>
+          <key>PayloadUUID</key>
+          <string>\(uuid2)</string>
+          <key>PayloadVersion</key>
+          <integer>1</integer>
+          <key>URL</key>
+          <string>\(url)</string>
+        </dict>
+      </array>
+      <key>PayloadDisplayName</key>
+      <string>\(title) - 主屏幕快捷方式</string>
+      <key>PayloadIdentifier</key>
+      <string>com.newweb.webclip</string>
+      <key>PayloadRemovalDisallowed</key>
+      <false/>
+      <key>PayloadType</key>
+      <string>Configuration</string>
+      <key>PayloadUUID</key>
+      <string>\(uuid)</string>
+      <key>PayloadVersion</key>
+      <integer>1</integer>
+    </dict>
+    </plist>
+    """
+    let dir = FileManager.default
+      .urls(for: .documentDirectory, in: .userDomainMask).first!
+      .appendingPathComponent("WebClip", isDirectory: true)
+    try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+    let safeTitle = title.replacingOccurrences(of: "/", with: "_")
+    let file = dir.appendingPathComponent("\(safeTitle).mobileconfig")
+    do {
+      try xml.write(to: file, atomically: true, encoding: .utf8)
+      DispatchQueue.main.async {
+        let dc = UIDocumentInteractionController(url: file)
+        dc.delegate = self
+        dc.presentOptionsMenu(from: CGRect(x: UIScreen.main.bounds.midX, y: UIScreen.main.bounds.midY, width: 0, height: 0), in: UIApplication.shared.keyWindow?.rootViewController?.view ?? UIView(), animated: true)
+      }
+      result(["success": true, "path": file.path])
+    } catch {
+      result(["success": false, "error": error.localizedDescription])
     }
   }
 
