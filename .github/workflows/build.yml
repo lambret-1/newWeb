@@ -96,17 +96,26 @@ jobs:
       # ============================================================
       - name: 编译应用
         run: |
-          # 强制无签名构建
-          export CODE_SIGNING_ALLOWED=NO
-          export CODE_SIGNING_REQUIRED=NO
-          # Flutter 后处理可能因签名检查报错，但 Xcode 实际已构建成功
-          flutter build ios --release --no-codesign || true
-          # 验证 Runner.app 是否生成
+          # 先生成 Xcode 项目
+          flutter build ios --release --no-codesign --config-only
+          # 用 xcodebuild 直接构建，强制无签名
+          cd ios
+          xcodebuild -workspace Runner.xcworkspace \
+            -scheme Runner \
+            -configuration Release \
+            -destination 'generic/platform=iOS' \
+            CODE_SIGNING_ALLOWED=NO \
+            CODE_SIGNING_REQUIRED=NO \
+            CODE_SIGN_IDENTITY="" \
+            build
+          cd ..
+          # 验证 Runner.app
           if [ ! -d "build/ios/iphoneos/Runner.app" ]; then
-            echo "::error::未找到 Runner.app，构建失败"
+            echo "::error::未找到 Runner.app"
+            ls -la build/ios/ 2>/dev/null || true
             exit 1
           fi
-          echo "构建成功，Runner.app 已生成"
+          echo "构建成功"
 
       - name: 正式签名（签名模式）
         if: steps.detect.outputs.has_cert == 'true'
