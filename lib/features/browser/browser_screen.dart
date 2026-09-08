@@ -30,6 +30,7 @@ import 'widgets/gesture_layer.dart';
 import 'widgets/progress_bar.dart';
 import 'widgets/tab_switcher.dart';
 import 'widgets/tool_bar.dart';
+import 'widgets/top_tab_bar.dart';
 
 /// 浏览器主界面：地址栏 + 多标签 WebView + 手势层 + 工具栏。
 class BrowserScreen extends StatefulWidget {
@@ -857,6 +858,27 @@ class _BrowserScreenState extends State<BrowserScreen> with WidgetsBindingObserv
                   onReload: () => _currentWebView()?.reload(),
                 ),
                 ProgressBar(progress: _progress),
+                ListenableBuilder(
+                  listenable: _tabManager,
+                  builder: (context, _) => TopTabBar(
+                    tabManager: _tabManager,
+                    onSwitch: (id) {
+                      _tabManager.switchTab(id);
+                      _refreshSnapshot();
+                    },
+                    onClose: (id) {
+                      _tabManager.closeTab(id);
+                      if (_tabManager.tabs.isEmpty) {
+                        _tabManager.addTab(url: 'https://www.baidu.com');
+                      }
+                    },
+                    onEditTitle: (id, title) =>
+                        _tabManager.updateTab(id, title: title),
+                    onAdd: () {
+                      _tabManager.addTab(url: 'https://www.baidu.com');
+                    },
+                  ),
+                ),
                 if (_incognito)
                   Container(
                     width: double.infinity,
