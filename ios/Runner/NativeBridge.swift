@@ -352,7 +352,7 @@ public class NativeBridgePlugin: NSObject, FlutterPlugin, QLPreviewControllerDat
 
       // 不超过一屏：直接截图返回
       if pageHeight <= viewHeight + 1 {
-        self.singleSnapshot(webView: webView, width: pageWidth, logs: &logs, result: result)
+        self.singleSnapshot(webView: webView, width: pageWidth, logs: logs, result: result)
         return
       }
 
@@ -427,8 +427,8 @@ public class NativeBridgePlugin: NSObject, FlutterPlugin, QLPreviewControllerDat
     }
   }
 
-  /// 单屏页面直接截图
-  private func singleSnapshot(webView: WKWebView, width: CGFloat, logs: inout [String], result: @escaping FlutterResult) {
+  /// 单屏页面直接截图（logs 用值拷贝，避免逃逸闭包捕获 inout）
+  private func singleSnapshot(webView: WKWebView, width: CGFloat, logs: [String], result: @escaping FlutterResult) {
     let config = WKSnapshotConfiguration()
     config.snapshotWidth = NSNumber(value: width)
     config.afterScreenUpdates = true
