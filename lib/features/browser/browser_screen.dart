@@ -867,13 +867,31 @@ class _BrowserScreenState extends State<BrowserScreen> with WidgetsBindingObserv
                       _refreshSnapshot();
                     },
                     onClose: (id) {
+                      final tab = _tabManager.tabs
+                          .where((t) => t.id == id)
+                          .firstOrNull;
+                      if (tab?.isLocked ?? false) return;
                       _tabManager.closeTab(id);
                       if (_tabManager.tabs.isEmpty) {
                         _tabManager.addTab(url: 'https://www.baidu.com');
                       }
                     },
-                    onEditTitle: (id, title) =>
-                        _tabManager.updateTab(id, title: title),
+                    onEditTitle: (id, title) {
+                      if (title.isEmpty) {
+                        _tabManager.setCustomTitle(id, null);
+                      } else {
+                        _tabManager.setCustomTitle(id, title);
+                      }
+                    },
+                    onEditUrl: (id, url) {
+                      _tabManager.switchTab(id);
+                      _tabManager.updateTab(id, url: url);
+                      _addressController.text = url;
+                      _currentWebView()?.load(url);
+                    },
+                    onToggleLock: (id, locked) {
+                      _tabManager.setLocked(id, locked);
+                    },
                     onAdd: () {
                       _tabManager.addTab(url: 'https://www.baidu.com');
                     },

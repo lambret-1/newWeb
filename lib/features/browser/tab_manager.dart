@@ -15,6 +15,12 @@ class BrowserTab {
   String title = '新标签页';
   bool isLoading = false;
 
+  /// 用户自定义标签标题（为 null 时显示主域名）。
+  String? customTitle;
+
+  /// 是否锁定：锁定后不可关闭。
+  bool isLocked = false;
+
   /// 最后浏览快照（PNG 字节，内存缓存），标签切换页展示。
   Uint8List? snapshot;
 
@@ -26,6 +32,23 @@ class BrowserTab {
 
   /// 最近使用时间戳（LRU 排序用）。
   int lastUsed = DateTime.now().millisecondsSinceEpoch;
+
+  /// 从 URL 提取主域名（如 https://www.baidu.com/s?wd=1 → baidu.com）。
+  String get displayDomain {
+    try {
+      final uri = Uri.parse(url);
+      final host = uri.host;
+      if (host.isEmpty) return url;
+      // 去掉 www. 前缀
+      final domain = host.startsWith('www.') ? host.substring(4) : host;
+      return domain;
+    } catch (_) {
+      return url;
+    }
+  }
+
+  /// 标签显示名称：自定义标题优先，否则显示主域名。
+  String get displayName => customTitle ?? displayDomain;
 }
 
 /// 多标签管理器：维护标签列表与当前激活标签。
@@ -109,6 +132,24 @@ class TabManager extends ChangeNotifier {
     unawaited(saveSession());
   }
 
+  /// 设置标签锁定状态。
+  void setLocked(String id, bool locked) {
+    final tab = _tabs.where((t) => t.id == id).firstOrNull;
+    if (tab == null) return;
+    tab.isLocked = locked;
+    notifyListeners();
+    unawaited(saveSession());
+  }
+
+  /// 设置用户自定义标签标题（传 null 清除自定义，恢复显示主域名）。
+  void setCustomTitle(String id, String? customTitle) {
+    final tab = _tabs.where((t) => t.id == id).firstOrNull;
+    if (tab == null) return;
+    tab.customTitle = customTitle;
+    notifyListeners();
+    unawaited(saveSession());
+  }
+
   /// 更新标签快照（内存 + 磁盘路径）。
   void updateSnapshot(String id,
       {Uint8List? bytes, String? diskPath}) {
@@ -147,6 +188,8 @@ class TabManager extends ChangeNotifier {
               .map((t) => {
                     'url': t.url,
                     'title': t.title,
+                    'customTitle': t.customTitle,
+                    'isLocked': t.isLocked,
                     'scrollY': t.scrollY,
                     'snapshotPath': t.snapshotPath,
                   })
@@ -175,6 +218,11 @@ class TabManager extends ChangeNotifier {
         );
         final title = t['title'] as String?;
         if (title != null && title.isNotEmpty) tab.title = title;
+        final customTitle = t['customTitle'] as String?;
+        if (customTitle != null && customTitle.isNotEmpty) {
+          tab.customTitle = customTitle;
+        }
+        tab.isLocked = t['isLocked'] as bool? ?? false;
         tab.scrollY = (t['scrollY'] as num?)?.toDouble() ?? 0;
         final snap = t['snapshotPath'] as String?;
         if (snap != null && snap.isNotEmpty && File(snap).existsSync()) {
