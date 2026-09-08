@@ -19,7 +19,7 @@ class PasswordService {
   static const String _masterKey = 'password_master_hash';
   static const String _autoFillKey = 'password_autofill_enabled';
 
-  Database get _db => DatabaseHelper.instance.database;
+  Future<Database> get _db => DatabaseHelper.instance.database;
 
   // ---------- 数据库表初始化（由 DatabaseHelper 调用） ----------
 

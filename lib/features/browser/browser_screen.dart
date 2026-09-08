@@ -2,9 +2,11 @@ import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 
+import '../../core/models/password_entry.dart';
 import '../../core/services/debug_logger.dart';
 import '../../core/services/password_service.dart';
 import '../../core/services/site_security_manager.dart';
+import 'package:flutter/cupertino.dart';
 import 'package:flutter/material.dart';
 import 'package:http/http.dart' as http;
 import 'package:package_info_plus/package_info_plus.dart';
