@@ -528,9 +528,9 @@ class _BrowserScreenState extends State<BrowserScreen> with WidgetsBindingObserv
                       onTap: () => _openDownloads(sheetContext),
                     ),
                     _gridItem(
-                      icon: Icons.offline_pin_outlined,
-                      label: '离线',
-                      onTap: () => _openOfflinePages(sheetContext),
+                      icon: Icons.settings_outlined,
+                      label: '设置',
+                      onTap: () => _openSettings(sheetContext),
                     ),
                   ],
                 ),
@@ -593,9 +593,9 @@ class _BrowserScreenState extends State<BrowserScreen> with WidgetsBindingObserv
                 onTap: () => _openCacheManager(sheetContext),
               ),
               _sheetItem(
-                icon: Icons.settings_outlined,
-                label: '设置',
-                onTap: () => _openSettings(sheetContext),
+                icon: Icons.offline_pin_outlined,
+                label: '离线页面',
+                onTap: () => _openOfflinePages(sheetContext),
               ),
               const SizedBox(height: 8),
                   ],
@@ -614,16 +614,40 @@ class _BrowserScreenState extends State<BrowserScreen> with WidgetsBindingObserv
     Navigator.pop(sheetContext);
     final activeTab = _tabManager.activeTab;
     if (activeTab == null) return;
-    _showMessage('正在生成长截图...');
-    final base64 = await NativeBridge.captureFullPage(activeTab.url);
-    if (base64 == null || base64.isEmpty) {
-      _showMessage('长截图生成失败');
-      return;
+    // 显示持续加载对话框，长截图可能需要数秒
+    showDialog(
+      context: context,
+      barrierDismissible: false,
+      builder: (_) => const AlertDialog(
+        content: Row(
+          children: [
+            CupertinoActivityIndicator(),
+            SizedBox(width: 16),
+            Expanded(child: Text('正在滚动截取整页，请稍候...')),
+          ],
+        ),
+      ),
+    );
+    String? base64;
+    String? errMsg;
+    try {
+      base64 = await NativeBridge.captureFullPage(activeTab.url)
+          .timeout(const Duration(seconds: 30), onTimeout: () {
+        errMsg = '截图超时，页面可能过长';
+        return null;
+      });
+    } catch (e) {
+      errMsg = '长截图生成失败';
     }
     if (!mounted) return;
+    Navigator.of(context).pop(); // 关闭加载框
+    if (base64 == null || base64.isEmpty) {
+      _showMessage(errMsg ?? '长截图生成失败');
+      return;
+    }
     Navigator.of(context).push(MaterialPageRoute(
       builder: (_) => ScreenshotResultPage(
-        base64Image: base64,
+        base64Image: base64!,
         pageUrl: activeTab.url,
         pageTitle: activeTab.title,
       ),
@@ -636,8 +660,22 @@ class _BrowserScreenState extends State<BrowserScreen> with WidgetsBindingObserv
     Navigator.pop(sheetContext);
     final activeTab = _tabManager.activeTab;
     if (activeTab == null) return;
-    _showMessage('正在生成 PDF...');
+    showDialog(
+      context: context,
+      barrierDismissible: false,
+      builder: (_) => const AlertDialog(
+        content: Row(
+          children: [
+            CupertinoActivityIndicator(),
+            SizedBox(width: 16),
+            Expanded(child: Text('正在生成 PDF...')),
+          ],
+        ),
+      ),
+    );
     final result = await NativeBridge.exportPDF(activeTab.url, activeTab.title);
+    if (!mounted) return;
+    Navigator.of(context).pop();
     if (result?['success'] != true) {
       _showMessage('PDF 导出失败');
     }

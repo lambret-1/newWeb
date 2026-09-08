@@ -57,7 +57,7 @@ class _ScreenshotResultPageState extends State<ScreenshotResultPage> {
     final bytes = base64Decode(widget.base64Image);
     final dir = await getTemporaryDirectory();
     final safeTitle = widget.pageTitle.replaceAll(RegExp(r'[^\w\u4e00-\u9fa5]'), '_');
-    final file = File(p.join(dir.path, '${safeTitle}_长截图.png'));
+    final file = File(p.join(dir.path, '${safeTitle}_长截图.jpg'));
     await file.writeAsBytes(bytes);
     await Share.shareXFiles([XFile(file.path)], text: widget.pageTitle);
   }
