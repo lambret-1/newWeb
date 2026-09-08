@@ -95,7 +95,10 @@ jobs:
       # 编译（两种模式共用：先无签名编译）
       # ============================================================
       - name: 编译应用
-        run: flutter build ios --release --no-codesign
+        run: |
+          # 移除 Xcode 项目中的 Development Team，确保无签名构建
+          sed -i '' 's/DEVELOPMENT_TEAM = [^;]*;//g' ios/Runner.xcodeproj/project.pbxproj || true
+          flutter build ios --release --no-codesign
 
       - name: 正式签名（签名模式）
         if: steps.detect.outputs.has_cert == 'true'
