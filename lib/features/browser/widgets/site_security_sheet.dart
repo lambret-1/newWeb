@@ -1,7 +1,7 @@
 import 'package:flutter/cupertino.dart';
 import 'package:flutter/material.dart';
 
-import '../../core/services/site_security_manager.dart';
+import '../../../core/services/site_security_manager.dart';
 
 /// 网页安全级别。
 enum SecurityLevel { secure, weak, mixed, insecure, danger }
@@ -230,7 +230,7 @@ class _SiteSecuritySheetState extends State<SiteSecuritySheet> {
           CupertinoSegmentedControl<SitePermission>(
             padding: EdgeInsets.zero,
             groupValue: value,
-            onValueChanged: onChanged,
+            onValueChanged: (v) => onChanged(v as SitePermission),
             children: const {
               SitePermission.ask: Padding(
                 padding: EdgeInsets.symmetric(horizontal: 8, vertical: 4),
