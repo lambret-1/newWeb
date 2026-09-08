@@ -10,6 +10,22 @@ public class NativeBridgePlugin: NSObject, FlutterPlugin, QLPreviewControllerDat
   private var previewURL: URL?
   private var documentController: UIDocumentInteractionController?
 
+  // 长截图会话状态（扁平结构，避免深度嵌套闭包导致编译器卡死）
+  private var fpWebView: WKWebView?
+  private var fpResult: FlutterResult?
+  private var fpLogs: [String] = []
+  private var fpSegments: [UIImage] = []
+  private var fpIndex = 0
+  private var fpSegmentCount = 0
+  private var fpPageWidth: CGFloat = 0
+  private var fpPageHeight: CGFloat = 0
+  private var fpViewHeight: CGFloat = 0
+  private var fpOutputScale: CGFloat = 1.0
+  private var fpOriginalOffset = CGPoint.zero
+  private var fpOriginalBounce = true
+  private let fpMaxHeight: CGFloat = 10000
+  private let fpMaxSegments = 25
+
   public static func register(with registrar: FlutterPluginRegistrar) {
     let channel = FlutterMethodChannel(
       name: "com.newweb/native",
@@ -304,171 +320,142 @@ public class NativeBridgePlugin: NSObject, FlutterPlugin, QLPreviewControllerDat
     }
   }
 
-  // MARK: - 长截图（滚动拼接整页，防闪退/白边优化）
-
-  /// 最大截图高度（pt），超过自动等比缩小，防止内存爆炸闪退
-  private let fullPageMaxHeight: CGFloat = 10000
-  /// 最多分段数，超出截断，防止无限滚动页面卡死
-  private let fullPageMaxSegments = 25
+  // MARK: - 长截图（扁平结构，防闪退/白边）
 
   private func captureFullPage(url: String, result: @escaping FlutterResult) {
     var logs: [String] = []
-    func slog(_ msg: String) {
-      NSLog("[NW-FullPage] \(msg)")
-      logs.append(msg)
-    }
+    func slog(_ msg: String) { NSLog("[NW-FullPage] \(msg)"); logs.append(msg) }
     slog("captureFullPage 入口, url=\(url)")
     guard let webView = findWebView(for: url, logs: &logs) else {
-      slog("❌ 找不到 WKWebView")
       result(["error": "找不到 WebView", "logs": logs])
       return
     }
+    let js = "Math.max(document.body.scrollHeight, document.documentElement.scrollHeight)"
+    webView.evaluateJavaScript(js) { [weak self] heightObj, _ in
+      self?.fpStart(webView: webView, heightObj: heightObj, logs: logs, result: result)
+    }
+  }
 
-    // 先获取页面完整高度
-    webView.evaluateJavaScript("Math.max(document.body.scrollHeight, document.documentElement.scrollHeight)") { [weak self] heightObj, jsErr in
-      guard let self = self else { return }
-      if let err = jsErr { slog("⚠️ 获取高度JS异常: \(err.localizedDescription)") }
+  private func fpStart(webView: WKWebView, heightObj: Any?, logs: [String], result: @escaping FlutterResult) {
+    var logs = logs
+    func slog(_ m: String) { NSLog("[NW-FullPage] \(m)"); logs.append(m) }
 
-      let pageWidth = webView.bounds.width
-      let viewHeight = webView.bounds.height
-      var pageHeight: CGFloat = 0
-      if let n = heightObj as? NSNumber { pageHeight = CGFloat(n.doubleValue) }
-      if pageHeight <= 0 { pageHeight = webView.scrollView.contentSize.height }
-      guard pageHeight > 0, pageWidth > 0, viewHeight > 0 else {
-        slog("❌ 页面尺寸异常 width=\(pageWidth) viewH=\(viewHeight) pageH=\(pageHeight)")
-        result(["error": "页面尺寸异常", "logs": logs])
-        return
-      }
-      slog("页面高度=\(pageHeight), 可视高度=\(viewHeight), 宽度=\(pageWidth)")
+    let pageWidth = webView.bounds.width
+    let viewHeight = webView.bounds.height
+    var pageHeight: CGFloat = 0
+    if let n = heightObj as? NSNumber { pageHeight = CGFloat(n.doubleValue) }
+    if pageHeight <= 0 { pageHeight = webView.scrollView.contentSize.height }
+    guard pageHeight > 0, pageWidth > 0, viewHeight > 0 else {
+      result(["error": "页面尺寸异常", "logs": logs]); return
+    }
+    slog("页面高度=\(pageHeight), 可视=\(viewHeight), 宽=\(pageWidth)")
 
-      // 计算最终输出缩放比例：超高页面等比缩小
-      var outputScale: CGFloat = 1.0
-      if pageHeight > self.fullPageMaxHeight {
-        outputScale = self.fullPageMaxHeight / pageHeight
-        slog("⚠️ 页面超高，输出缩放=\(outputScale)")
-      }
-
-      // 不超过一屏：直接截图返回
-      if pageHeight <= viewHeight + 1 {
-        self.singleSnapshot(webView: webView, width: pageWidth, logs: logs, result: result)
-        return
-      }
-
-      let originalOffset = webView.scrollView.contentOffset
-      // 禁用滚动期间的弹性和动画，防止白边
-      let originalBounce = webView.scrollView.bounces
-      webView.scrollView.bounces = false
-
-      // 分段数（按真实页面高度分段）
-      let segmentCount = min(Int(ceil(pageHeight / viewHeight)), self.fullPageMaxSegments)
-      slog("计划分段数=\(segmentCount)")
-
-      var segments: [UIImage] = []
-      segments.reserveCapacity(segmentCount)
-
-      func finish(_ finalImage: UIImage?) {
-        // 恢复 webView 状态
-        webView.scrollView.bounces = originalBounce
-        webView.scrollView.setContentOffset(originalOffset, animated: false)
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
-          webView.scrollView.setContentOffset(originalOffset, animated: false)
+    // 不超过一屏：单张截图
+    if pageHeight <= viewHeight + 1 {
+      let cfg = WKSnapshotConfiguration()
+      cfg.snapshotWidth = NSNumber(value: pageWidth)
+      cfg.afterScreenUpdates = true
+      webView.takeSnapshot(with: cfg) { image, _ in
+        guard let image = image, let data = image.jpegData(compressionQuality: 0.9) else {
+          result(["error": "截图失败", "logs": logs]); return
         }
-        guard let finalImage = finalImage,
-              let data = finalImage.jpegData(compressionQuality: 0.85) else {
-          slog("❌ 最终图片生成失败")
-          result(["error": "拼接失败", "logs": logs])
-          return
-        }
-        slog("✅ 长截图完成, 尺寸=\(finalImage.size), 段数=\(segments.count), 大小=\(data.count/1024)KB")
         result(["base64": data.base64EncodedString(), "logs": logs])
       }
+      return
+    }
 
-      func captureSegment(at index: Int) {
-        guard index < segmentCount else {
-          // 全部截完，开始拼接
-          autoreleasepool {
-            let stitched = self.stitchSegments(
-              segments,
-              width: pageWidth,
-              pageHeight: pageHeight,
-              outputScale: outputScale
-            )
-            finish(stitched)
-          }
-          return
-        }
-        let offsetY = CGFloat(index) * viewHeight
-        let clampedY = min(offsetY, max(0, pageHeight - viewHeight))
-        // 滚动到目标位置
-        webView.scrollView.setContentOffset(CGPoint(x: 0, y: clampedY), animated: false)
-        webView.layoutIfNeeded()
-        // 等待滚动和渲染稳定（白边主要靠这个等待消除）
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.28) {
-          let config = WKSnapshotConfiguration()
-          config.snapshotWidth = NSNumber(value: pageWidth)
-          // 指定只截 webView 当前可见区域，不包含状态栏
-          config.afterScreenUpdates = true
-          webView.takeSnapshot(with: config) { image, snapErr in
-            if let err = snapErr {
-              slog("⚠️ 第\(index+1)段截图失败: \(err.localizedDescription)，跳过")
-            } else if let image = image {
-              segments.append(image)
-              slog("第\(index+1)/\(segmentCount)段完成 y=\(Int(clampedY)) img=\(Int(image.size.width))x\(Int(image.size.height))")
-            }
-            // 释放当前段引用后继续
-            autoreleasepool { captureSegment(at: index + 1) }
-          }
-        }
+    // 初始化会话
+    fpWebView = webView
+    fpResult = result
+    fpLogs = logs
+    fpSegments.removeAll()
+    fpIndex = 0
+    fpPageWidth = pageWidth
+    fpPageHeight = pageHeight
+    fpViewHeight = viewHeight
+    fpOutputScale = pageHeight > fpMaxHeight ? fpMaxHeight / pageHeight : 1.0
+    fpSegmentCount = min(Int(ceil(pageHeight / viewHeight)), fpMaxSegments)
+    fpOriginalOffset = webView.scrollView.contentOffset
+    fpOriginalBounce = webView.scrollView.bounces
+    webView.scrollView.bounces = false
+    slog("计划分段=\(fpSegmentCount), 缩放=\(fpOutputScale)")
+    fpCaptureNext()
+  }
+
+  private func fpCaptureNext() {
+    guard let webView = fpWebView, let result = fpResult else { return }
+    // 全部截完 -> 拼接
+    guard fpIndex < fpSegmentCount else {
+      fpFinish()
+      return
+    }
+    let offsetY = CGFloat(fpIndex) * fpViewHeight
+    let clampedY = min(offsetY, max(0, fpPageHeight - fpViewHeight))
+    webView.scrollView.setContentOffset(CGPoint(x: 0, y: clampedY), animated: false)
+    webView.layoutIfNeeded()
+    let idx = fpIndex
+    DispatchQueue.main.asyncAfter(deadline: .now() + 0.28) { [weak self] in
+      guard let self = self else { return }
+      let cfg = WKSnapshotConfiguration()
+      cfg.snapshotWidth = NSNumber(value: self.fpPageWidth)
+      cfg.afterScreenUpdates = true
+      webView.takeSnapshot(with: cfg) { image, err in
+        if let e = err { NSLog("[NW-FullPage] 第\(idx+1)段失败: \(e.localizedDescription)") }
+        if let image = image { self.fpSegments.append(image) }
+        self.fpIndex += 1
+        self.fpCaptureNext()
       }
-      // 从顶部开始
-      captureSegment(at: 0)
     }
   }
 
-  /// 单屏页面直接截图（logs 用值拷贝，避免逃逸闭包捕获 inout）
-  private func singleSnapshot(webView: WKWebView, width: CGFloat, logs: [String], result: @escaping FlutterResult) {
-    let config = WKSnapshotConfiguration()
-    config.snapshotWidth = NSNumber(value: width)
-    config.afterScreenUpdates = true
-    webView.takeSnapshot(with: config) { image, _ in
-      guard let image = image, let data = image.jpegData(compressionQuality: 0.9) else {
-        result(["error": "截图失败", "logs": logs])
-        return
-      }
-      result(["base64": data.base64EncodedString(), "logs": logs])
+  private func fpFinish() {
+    guard let webView = fpWebView, let result = fpResult else { return }
+    // 恢复滚动状态
+    webView.scrollView.bounces = fpOriginalBounce
+    webView.scrollView.setContentOffset(fpOriginalOffset, animated: false)
+    let restoreOffset = fpOriginalOffset
+    DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
+      webView.scrollView.setContentOffset(restoreOffset, animated: false)
     }
+    let image = fpStitch()
+    defer { fpCleanup() }
+    guard let finalImage = image, let data = finalImage.jpegData(compressionQuality: 0.85) else {
+      fpLogs.append("❌ 拼接失败")
+      result(["error": "拼接失败", "logs": fpLogs]); return
+    }
+    fpLogs.append("✅ 完成 尺寸=\(finalImage.size) 段=\(fpSegments.count) \(data.count/1024)KB")
+    result(["base64": data.base64EncodedString(), "logs": fpLogs])
   }
 
-  /// 垂直拼接分段截图，并按 outputScale 等比缩小到安全尺寸
-  private func stitchSegments(_ images: [UIImage], width: CGFloat, pageHeight: CGFloat, outputScale: CGFloat) -> UIImage? {
-    guard !images.isEmpty else { return nil }
-    // 以第一张图的实际像素宽度为基准
-    let firstScale = images[0].scale
-    let pixelWidth = images[0].size.width * firstScale
-    // 目标总像素高度（按宽度比例 + 输出缩放）
-    let pointToPixel = pixelWidth / width
-    let totalPixelHeight = pageHeight * pointToPixel * outputScale
-    let finalSize = CGSize(width: pixelWidth, height: totalPixelHeight)
+  private func fpCleanup() {
+    fpWebView = nil
+    fpResult = nil
+    fpSegments.removeAll()
+    fpLogs.removeAll()
+  }
 
+  private func fpStitch() -> UIImage? {
+    guard !fpSegments.isEmpty else { return nil }
+    let pixelWidth = fpSegments[0].size.width * fpSegments[0].scale
+    let pointToPixel = pixelWidth / fpPageWidth
+    let totalH = fpPageHeight * pointToPixel * fpOutputScale
+    let finalSize = CGSize(width: pixelWidth, height: totalH)
     let renderer = UIGraphicsImageRenderer(size: finalSize)
     return renderer.image { ctx in
       UIColor.white.setFill()
       ctx.fill(CGRect(origin: .zero, size: finalSize))
-      var drawY: CGFloat = 0
-      for (i, img) in images.enumerated() {
-        let imgPixelH = img.size.height * img.scale
-        // 该段在最终图中的高度
-        let targetH = min(imgPixelH * outputScale, finalSize.height - drawY)
-        if targetH <= 0 { break }
-        img.draw(in: CGRect(x: 0, y: drawY, width: finalSize.width, height: targetH))
-        drawY += targetH
-        if drawY >= finalSize.height {
-          NSLog("[NW-FullPage] 拼接至第\(i+1)段已到底")
-          break
-        }
+      var y: CGFloat = 0
+      for (i, img) in fpSegments.enumerated() {
+        let pxH = img.size.height * img.scale
+        let h = min(pxH * fpOutputScale, finalSize.height - y)
+        if h <= 0 { break }
+        img.draw(in: CGRect(x: 0, y: y, width: finalSize.width, height: h))
+        y += h
+        if y >= finalSize.height { NSLog("[NW-FullPage] 拼接到第\(i+1)段到底"); break }
       }
     }
   }
+
 
   // MARK: - 保存到相册
 
