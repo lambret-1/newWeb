@@ -13,6 +13,7 @@ import '../../core/services/settings_service.dart';
 import '../../native/native_bridge.dart';
 import 'adblock_custom_page.dart';
 import 'cache_manager_page.dart';
+import '../password/password_vault_page.dart';
 import 'debug_log_page.dart';
 
 /// 设置页：搜索引擎 / 广告拦截（含豁免站点）/ 无痕 / 网页翻译 / 缓存 / DNS / 关于。
@@ -540,6 +541,21 @@ class _SettingsPageState extends State<SettingsPage> {
                 onChanged: (value) async {
                   setState(() => _adBlock = value);
                   await SettingsService.instance.setAdBlockEnabled(value);
+                },
+              ),
+            ],
+          ),
+          _group(
+            title: '密码与隐私',
+            children: [
+              _tile(
+                icon: Icons.password,
+                title: '密码本',
+                subtitle: '自动填充网站登录密码',
+                onTap: () {
+                  Navigator.of(context).push(
+                    MaterialPageRoute(builder: (_) => const PasswordVaultPage()),
+                  );
                 },
               ),
             ],

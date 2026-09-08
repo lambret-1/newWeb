@@ -3,6 +3,7 @@ import 'dart:convert';
 import 'dart:io';
 
 import '../../core/services/debug_logger.dart';
+import '../../core/services/password_service.dart';
 import '../../core/services/site_security_manager.dart';
 import 'package:flutter/material.dart';
 import 'package:http/http.dart' as http;
@@ -22,6 +23,7 @@ import 'cache_manager_page.dart';
 import 'download_page.dart';
 import 'history_page.dart';
 import 'offline_pages_page.dart';
+import '../password/password_vault_page.dart';
 import 'reader_page.dart';
 import 'settings_page.dart';
 import 'tab_manager.dart';
@@ -549,6 +551,16 @@ class _BrowserScreenState extends State<BrowserScreen> with WidgetsBindingObserv
                 label: '保存离线页面',
                 onTap: () => _saveOffline(sheetContext),
               ),
+              _sheetItem(
+                icon: Icons.password_outlined,
+                label: '密码本',
+                onTap: () {
+                  Navigator.pop(sheetContext);
+                  Navigator.of(context).push(
+                    MaterialPageRoute(builder: (_) => const PasswordVaultPage()),
+                  );
+                },
+              ),
               const Divider(height: 1, color: Color(0xFFF0F0F0)),
               // 第三段：其他
               _sectionTitle('其他'),
@@ -873,6 +885,107 @@ class _BrowserScreenState extends State<BrowserScreen> with WidgetsBindingObserv
     setState(() => _siteConfig = newConfig);
   }
 
+  /// 检测到登录表单：查找匹配密码并自动填充。
+  Future<void> _onLoginFormDetected(String tabId, String url) async {
+    final autoFill = await PasswordService.instance.isAutoFillEnabled();
+    if (!autoFill) return;
+    final domain = _domainOf(url);
+    final entries = await PasswordService.instance.findByDomain(domain);
+    if (entries.isEmpty) return;
+    // 取最近更新的一条自动填充
+    final entry = entries.first;
+    final webView = _webViewKeys[tabId]?.currentState;
+    await webView?.fillLoginForm(entry.username, entry.password);
+    DebugLogger.instance.log('🔑 自动填充登录表单: $domain (${entry.username})');
+  }
+
+  /// 登录表单提交：弹出保存密码提示。
+  Future<void> _onLoginFormSubmitted(
+    String url,
+    String username,
+    String password,
+  ) async {
+    if (username.isEmpty || password.isEmpty) return;
+    final domain = _domainOf(url);
+    // 检查是否已存在相同账号
+    final existing = await PasswordService.instance.findOne(domain, username);
+    if (existing != null && existing.password == password) return; // 已保存且密码相同
+
+    if (!mounted) return;
+    final action = await showModalBottomSheet<String>(
+      context: context,
+      backgroundColor: Colors.transparent,
+      builder: (ctx) => Container(
+        decoration: const BoxDecoration(
+          color: Colors.white,
+          borderRadius: BorderRadius.vertical(top: Radius.circular(16)),
+        ),
+        padding: const EdgeInsets.all(20),
+        child: SafeArea(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              const Icon(Icons.password, size: 40, color: Color(0xFF007AFF)),
+              const SizedBox(height: 12),
+              Text(
+                existing != null ? '更新 $domain 的密码？' : '保存 $domain 的密码？',
+                textAlign: TextAlign.center,
+                style: const TextStyle(fontSize: 17, fontWeight: FontWeight.w600),
+              ),
+              const SizedBox(height: 8),
+              Text(
+                '账号：$username\n密码将安全保存在本设备',
+                textAlign: TextAlign.center,
+                style: TextStyle(fontSize: 14, color: Colors.grey[600], height: 1.5),
+              ),
+              const SizedBox(height: 20),
+              CupertinoButton(
+                color: const Color(0xFF007AFF),
+                borderRadius: BorderRadius.circular(12),
+                onPressed: () => Navigator.pop(ctx, 'save'),
+                child: Text(existing != null ? '更新密码' : '保存密码',
+                    style: const TextStyle(fontSize: 16, fontWeight: FontWeight.w600)),
+              ),
+              const SizedBox(height: 10),
+              CupertinoButton(
+                onPressed: () => Navigator.pop(ctx, 'never'),
+                child: Text('不再询问此网站',
+                    style: TextStyle(fontSize: 15, color: Colors.grey[500])),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+
+    if (action == 'save') {
+      final now = DateTime.now().millisecondsSinceEpoch;
+      await PasswordService.instance.upsert(
+        PasswordEntry(
+          id: existing?.id,
+          domain: domain,
+          username: username,
+          password: password,
+          createdAt: existing?.createdAt ?? now,
+          updatedAt: now,
+        ),
+      );
+      if (mounted) _showMessage('密码已保存');
+    }
+  }
+
+  String _domainOf(String url) {
+    try {
+      final uri = Uri.parse(url);
+      String host = uri.host;
+      if (host.startsWith('www.')) host = host.substring(4);
+      return host;
+    } catch (_) {
+      return url;
+    }
+  }
+
   /// 截取当前激活标签的最后浏览快照（无痕模式不截图），写入磁盘持久化。
   /// [delay] 等待页面渲染稳定的毫秒数（页面加载完成后用 400ms，即时截图用 0）。
   Future<void> _refreshSnapshot({int delay = 400}) async {
@@ -1065,6 +1178,9 @@ class _BrowserScreenState extends State<BrowserScreen> with WidgetsBindingObserv
                         onOfflineCollected: _saveOfflineCollected,
                         onCanGoBackChanged: _onCanGoBackChanged,
                         onCanGoForwardChanged: _onCanGoForwardChanged,
+                        onLoginFormDetected: (url) => _onLoginFormDetected(tabId, url),
+                        onLoginFormSubmitted: (url, username, password) =>
+                            _onLoginFormSubmitted(url, username, password),
                       );
                     }).toList(),
                   ),

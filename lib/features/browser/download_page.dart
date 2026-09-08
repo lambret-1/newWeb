@@ -162,12 +162,25 @@ class _DownloadPageState extends State<DownloadPage> {
             ],
             _sectionTitle('已下载（${_files.length}）'),
             if (_files.isEmpty)
-              const Padding(
-                padding: EdgeInsets.symmetric(vertical: 40),
+              Padding(
+                padding: const EdgeInsets.symmetric(vertical: 60),
                 child: Center(
-                  child: Text(
-                    '暂无下载文件',
-                    style: TextStyle(color: Color(0xFF9CA3AF), fontSize: 14),
+                  child: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Icon(Icons.download_for_offline_outlined,
+                          size: 56, color: Colors.grey[300]),
+                      const SizedBox(height: 12),
+                      const Text(
+                        '暂无下载文件',
+                        style: TextStyle(color: Color(0xFF9CA3AF), fontSize: 15),
+                      ),
+                      const SizedBox(height: 4),
+                      const Text(
+                        '下载的文件会显示在这里',
+                        style: TextStyle(color: Color(0xFFC0C4CC), fontSize: 12),
+                      ),
+                    ],
                   ),
                 ),
               )

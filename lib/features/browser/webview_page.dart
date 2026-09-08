@@ -35,6 +35,8 @@ class WebViewPage extends StatefulWidget {
     this.snapshotPath,
     this.initialScrollY = 0,
     this.onScrollSaved,
+    this.onLoginFormDetected,
+    this.onLoginFormSubmitted,
   });
 
   final ValueChanged<double> onProgress;
@@ -67,6 +69,13 @@ class WebViewPage extends StatefulWidget {
 
   /// 离开标签前保存滚动位置回调。
   final ValueChanged<double>? onScrollSaved;
+
+  /// 检测到页面包含登录表单时回调（传入当前 URL）。
+  final ValueChanged<String>? onLoginFormDetected;
+
+  /// 登录表单提交时回调（url, username, password）。
+  final void Function(String url, String username, String password)?
+      onLoginFormSubmitted;
 
   @override
   State<WebViewPage> createState() => WebViewPageState();
@@ -165,6 +174,8 @@ class WebViewPageState extends State<WebViewPage> {
             }
             // 自动翻译白名单检测
             unawaited(_maybeAutoTranslate(url));
+            // 登录表单检测 + 自动填充
+            unawaited(_detectLoginForm(url));
           },
           onUrlChange: (UrlChange change) {
             widget.onUrlChanged(change.url?.toString());
@@ -293,6 +304,84 @@ class WebViewPageState extends State<WebViewPage> {
     if (c == null) return;
     await c.reload();
   }
+
+  /// 填充登录表单：找到页面中的用户名/密码输入框并填入。
+  Future<void> fillLoginForm(String username, String password) async {
+    final c = _controller;
+    if (c == null) return;
+    final script = '''
+      (function() {
+        function fillInput(selector, value) {
+          var inputs = document.querySelectorAll(selector);
+          for (var i = 0; i < inputs.length; i++) {
+            var el = inputs[i];
+            if (el.type === 'hidden' || el.disabled || el.readOnly) continue;
+            var proto = Object.getPrototypeOf(el);
+            var setter = Object.getOwnPropertyDescriptor(proto, 'value').set;
+            setter.call(el, value);
+            el.dispatchEvent(new Event('input', { bubbles: true }));
+            el.dispatchEvent(new Event('change', { bubbles: true }));
+            return true;
+          }
+          return false;
+        }
+        var u = fillInput('input[type="text"], input[type="email"], input[name*="user" i], input[name*="login" i], input[name*="account" i], input:not([type])', ${_jsStr(username)});
+        var p = fillInput('input[type="password"]', ${_jsStr(password)});
+        return u && p;
+      })();
+    ''';
+    await c.runJavaScript(script).catchError((_) {});
+  }
+
+  /// 检测页面是否包含登录表单，有则回调上层。
+  Future<void> _detectLoginForm(String url) async {
+    final c = _controller;
+    if (c == null) return;
+    if (widget.onLoginFormDetected == null && widget.onLoginFormSubmitted == null) return;
+    try {
+      final result = await c.runJavaScriptReturningResult('''
+        (function() {
+          var pwd = document.querySelector('input[type="password"]');
+          if (!pwd) return false;
+          var form = pwd.closest('form') || document.body;
+          var user = form.querySelector('input[type="text"], input[type="email"], input[name*="user" i], input[name*="login" i], input[name*="account" i], input:not([type])');
+          return !!user;
+        })();
+      ''');
+      if (result == true || result == 1) {
+        widget.onLoginFormDetected?.call(url);
+        _injectFormSubmitListener(url);
+      }
+    } catch (_) {}
+  }
+
+  /// 注入表单提交监听器，捕获用户名密码后回调上层。
+  Future<void> _injectFormSubmitListener(String url) async {
+    final c = _controller;
+    if (c == null || widget.onLoginFormSubmitted == null) return;
+    final script = '''
+      (function() {
+        if (window.__NEWWEB_LOGIN_HOOK__) return;
+        window.__NEWWEB_LOGIN_HOOK__ = true;
+        document.addEventListener('submit', function(e) {
+          var form = e.target;
+          if (!(form instanceof HTMLFormElement)) return;
+          var pwd = form.querySelector('input[type="password"]');
+          if (!pwd) return;
+          var user = form.querySelector('input[type="text"], input[type="email"], input[name*="user" i], input[name*="login" i], input[name*="account" i], input:not([type])');
+          if (!user) return;
+          var data = JSON.stringify({ id: 'login_' + Date.now(), action: 'loginSubmit', payload: { url: window.location.href, username: user.value, password: pwd.value } });
+          if (window.__NEWWEB_BRIDGE__) {
+            window.__NEWWEB_BRIDGE__.postMessage(data);
+          }
+        }, true);
+      })();
+    ''';
+    await c.runJavaScript(script).catchError((_) {});
+  }
+
+  String _jsStr(String s) =>
+      "'${s.replaceAll('\\', '\\\\').replaceAll("'", "\\'").replaceAll('\n', '\\n')}'";
 
   Future<void> goHome() async {
     final c = _controller;

@@ -3,15 +3,16 @@ import 'package:sqflite/sqflite.dart';
 
 import '../models/bookmark.dart';
 import '../models/history_entry.dart';
+import '../services/password_service.dart';
 
-/// SQLite 本地存储：书签 + 历史记录。
+/// SQLite 本地存储：书签 + 历史记录 + 密码本。
 class DatabaseHelper {
   DatabaseHelper._();
 
   static final DatabaseHelper instance = DatabaseHelper._();
 
   static const String _dbName = 'newweb.db';
-  static const int _dbVersion = 1;
+  static const int _dbVersion = 2;
 
   Database? _db;
 
@@ -45,6 +46,12 @@ class DatabaseHelper {
         await db.execute(
           'CREATE INDEX idx_history_visited ON history(visited_at DESC)',
         );
+        await PasswordService.createTable(db);
+      },
+      onUpgrade: (db, oldVersion, newVersion) async {
+        if (oldVersion < 2) {
+          await PasswordService.createTable(db);
+        }
       },
     );
   }

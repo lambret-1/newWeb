@@ -35,6 +35,9 @@ class JsBridge {
   /// 整页翻译状态回调（state / total / done）。
   void Function(String state, int total, int done)? onTranslateState;
 
+  /// 登录表单提交回调（url, username, password）。
+  void Function(String url, String username, String password)? onLoginSubmitted;
+
   JsBridge() {
     register('ping', (_) async => 'pong');
     register('getAppInfo', (_) async => {
@@ -87,6 +90,17 @@ class JsBridge {
         (payload['title'] ?? '离线页面') as String,
         (payload['url'] ?? '') as String,
         (payload['html'] ?? '') as String,
+      );
+      return;
+    }
+
+    // 特判：登录表单提交
+    if (msg.action == 'loginSubmit') {
+      final payload = msg.payload;
+      onLoginSubmitted?.call(
+        (payload['url'] ?? '') as String,
+        (payload['username'] ?? '') as String,
+        (payload['password'] ?? '') as String,
       );
       return;
     }
