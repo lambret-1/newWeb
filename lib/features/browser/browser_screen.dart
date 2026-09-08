@@ -320,35 +320,56 @@ class _BrowserScreenState extends State<BrowserScreen> with WidgetsBindingObserv
     return (latestTag, body, releaseUrl, ipaUrl);
   }
 
-  /// 自动检查更新：前台时触发，检查间隔 1 小时，跳过用户已忽略的版本。
+  /// 自动检查更新：前台时触发，检查间隔 5 分钟，跳过用户已忽略的版本。
   Future<void> _autoCheckUpdate() async {
     if (!mounted) return;
     final settings = SettingsService.instance;
     final enabled = await settings.isAutoUpdateCheckEnabled();
+    DebugLogger.instance.log('自动检查: 开关=$enabled', module: LogModule.update);
     if (!enabled) return;
 
     final lastCheck = await settings.getLastUpdateCheck();
     final now = DateTime.now().millisecondsSinceEpoch;
-    // 检查间隔 1 小时
-    if (now - lastCheck < 3600 * 1000) return;
+    final interval = now - lastCheck;
+    DebugLogger.instance.log('自动检查: 距上次 ${(interval / 60000).toStringAsFixed(1)} 分钟', module: LogModule.update);
+    // 检查间隔 5 分钟
+    if (lastCheck > 0 && interval < 5 * 60 * 1000) {
+      DebugLogger.instance.log('自动检查: 间隔不足 5 分钟，跳过', module: LogModule.update);
+      return;
+    }
 
     await settings.setLastUpdateCheck(now);
 
     try {
+      DebugLogger.instance.log('自动检查: 开始请求 GitHub API', module: LogModule.update);
       final (latestTag, body, releaseUrl, ipaUrl) = await _fetchLatestRelease();
-      if (latestTag.isEmpty) return;
+      DebugLogger.instance.log('自动检查: 最新版本=$latestTag, IPA=${ipaUrl != null ? "有" : "无"}', module: LogModule.update);
+      if (latestTag.isEmpty) {
+        DebugLogger.instance.log('自动检查: 版本号为空，终止', module: LogModule.update);
+        return;
+      }
 
       final info = await PackageInfo.fromPlatform();
       final current = info.version;
-      if (_compareVersion(latestTag, current) <= 0) return;
+      DebugLogger.instance.log('自动检查: 当前版本=$current, 比较结果=${_compareVersion(latestTag, current)}', module: LogModule.update);
+      if (_compareVersion(latestTag, current) <= 0) {
+        DebugLogger.instance.log('自动检查: 已是最新版本，不提示', module: LogModule.update);
+        return;
+      }
 
       // 检查是否是用户跳过的版本
       final skipped = await settings.getUpdateSkippedVersion();
-      if (skipped == latestTag) return;
+      DebugLogger.instance.log('自动检查: 跳过版本=$skipped', module: LogModule.update);
+      if (skipped == latestTag) {
+        DebugLogger.instance.log('自动检查: 用户已跳过该版本，不提示', module: LogModule.update);
+        return;
+      }
 
       if (!mounted) return;
+      DebugLogger.instance.log('自动检查: 弹出更新提示', module: LogModule.update);
       _showUpdateDialog(latestTag, current, body, releaseUrl, ipaUrl);
-    } catch (_) {
+    } catch (e) {
+      DebugLogger.instance.log('自动检查: 异常 $e', module: LogModule.update);
       // 静默失败，不打扰用户
     }
   }

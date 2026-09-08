@@ -8,7 +8,8 @@ enum LogModule {
   adblock('广告拦截'),
   translate('翻译'),
   navigation('导航'),
-  native('原生');
+  native('原生'),
+  update('更新');
 
   final String label;
   const LogModule(this.label);
