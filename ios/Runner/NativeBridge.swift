@@ -343,10 +343,8 @@ public class NativeBridgePlugin: NSObject, FlutterPlugin, QLPreviewControllerDat
 
       // 计算最终输出缩放比例：超高页面等比缩小
       var outputScale: CGFloat = 1.0
-      var captureHeight = pageHeight
-      if captureHeight > self.fullPageMaxHeight {
-        outputScale = self.fullPageMaxHeight / captureHeight
-        captureHeight = self.fullPageMaxHeight
+      if pageHeight > self.fullPageMaxHeight {
+        outputScale = self.fullPageMaxHeight / pageHeight
         slog("⚠️ 页面超高，输出缩放=\(outputScale)")
       }
 
