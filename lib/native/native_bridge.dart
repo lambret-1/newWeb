@@ -170,9 +170,16 @@ class NativeBridge {
     return value is Map ? Map<String, dynamic>.from(value) : null;
   }
 
-  /// 生成 WebClip 配置文件并弹出安装（添加到主屏幕）。
-  static Future<Map<String, dynamic>?> generateWebClip(String url, String title) async {
-    final value = await invoke('generateWebClip', {'url': url, 'title': title});
-    return value is Map ? Map<String, dynamic>.from(value) : null;
+  /// 导出网页为 PDF，返回文件路径。
+  static Future<Map<String, dynamic>?> exportPDF(String url, String title) async {
+    final value = await invoke('exportPDF', {'url': url, 'title': title});
+    if (value is! Map) return null;
+    final rawLogs = value['logs'];
+    if (rawLogs is List) {
+      for (final l in rawLogs) {
+        if (l is String) DebugLogger.instance.log('[Swift] $l');
+      }
+    }
+    return Map<String, dynamic>.from(value);
   }
 }

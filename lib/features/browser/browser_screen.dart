@@ -485,9 +485,9 @@ class _BrowserScreenState extends State<BrowserScreen> with WidgetsBindingObserv
         borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
       ),
       builder: (sheetContext) => SafeArea(
-        child: SingleChildScrollView(
+        child: SizedBox(
+          height: MediaQuery.of(context).size.height * 0.6,
           child: Column(
-            mainAxisSize: MainAxisSize.min,
             children: [
               // 顶部拖拽横条
               const SizedBox(height: 8),
@@ -502,6 +502,10 @@ class _BrowserScreenState extends State<BrowserScreen> with WidgetsBindingObserv
                 ),
               ),
               const SizedBox(height: 12),
+              Expanded(
+                child: ListView(
+                  shrinkWrap: true,
+                  children: [
               // 第一段：常用功能网格（4列）
               Padding(
                 padding: const EdgeInsets.symmetric(horizontal: 16),
@@ -572,18 +576,13 @@ class _BrowserScreenState extends State<BrowserScreen> with WidgetsBindingObserv
               ),
               _sheetItem(
                 icon: Icons.image_outlined,
-                label: '导出网页长图',
-                onTap: () => _exportLongImage(sheetContext),
+                label: '导出网页 PDF',
+                onTap: () => _exportPDF(sheetContext),
               ),
               _sheetItem(
                 icon: Icons.code,
                 label: '查看网页源码',
                 onTap: () => _viewSourceCode(sheetContext),
-              ),
-              _sheetItem(
-                icon: Icons.add_to_home_screen,
-                label: '添加到主屏幕',
-                onTap: () => _addToHomeScreen(sheetContext),
               ),
               const Divider(height: 1, color: Color(0xFFF0F0F0)),
               // 第三段：其他
@@ -599,6 +598,9 @@ class _BrowserScreenState extends State<BrowserScreen> with WidgetsBindingObserv
                 onTap: () => _openSettings(sheetContext),
               ),
               const SizedBox(height: 8),
+                  ],
+                ),
+              ),
             ],
           ),
         ),
@@ -628,10 +630,17 @@ class _BrowserScreenState extends State<BrowserScreen> with WidgetsBindingObserv
     ));
   }
 
-  // MARK: - 导出网页长图
+  // MARK: - 导出网页 PDF
 
-  Future<void> _exportLongImage(BuildContext sheetContext) async {
-    await _captureFullPage(sheetContext);
+  Future<void> _exportPDF(BuildContext sheetContext) async {
+    Navigator.pop(sheetContext);
+    final activeTab = _tabManager.activeTab;
+    if (activeTab == null) return;
+    _showMessage('正在生成 PDF...');
+    final result = await NativeBridge.exportPDF(activeTab.url, activeTab.title);
+    if (result?['success'] != true) {
+      _showMessage('PDF 导出失败');
+    }
   }
 
   // MARK: - 查看网页源码
@@ -643,45 +652,6 @@ class _BrowserScreenState extends State<BrowserScreen> with WidgetsBindingObserv
     Navigator.of(context).push(MaterialPageRoute(
       builder: (_) => SourceCodePage(url: activeTab.url, title: activeTab.title),
     ));
-  }
-
-  // MARK: - 添加到主屏幕
-
-  Future<void> _addToHomeScreen(BuildContext sheetContext) async {
-    Navigator.pop(sheetContext);
-    final activeTab = _tabManager.activeTab;
-    if (activeTab == null) return;
-
-    final nameController = TextEditingController(
-      text: activeTab.title.isEmpty ? activeTab.url : activeTab.title,
-    );
-    final customName = await showDialog<String>(
-      context: context,
-      builder: (ctx) => AlertDialog(
-        title: const Text('添加到主屏幕'),
-        content: TextField(
-          controller: nameController,
-          decoration: const InputDecoration(labelText: '桌面图标名称'),
-          autofocus: true,
-        ),
-        actions: [
-          TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('取消')),
-          TextButton(
-            onPressed: () => Navigator.pop(ctx, nameController.text.trim()),
-            child: const Text('添加', style: TextStyle(color: Color(0xFF007AFF))),
-          ),
-        ],
-      ),
-    );
-
-    if (customName == null || customName.isEmpty) return;
-
-    final result = await NativeBridge.generateWebClip(activeTab.url, customName);
-    if (result?['success'] == true) {
-      _showMessage('请在弹出的菜单中选择 Safari 安装');
-    } else {
-      _showMessage('添加失败，请重试');
-    }
   }
 
   Widget _sectionTitle(String title) {

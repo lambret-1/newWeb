@@ -85,12 +85,8 @@ public class NativeBridgePlugin: NSObject, FlutterPlugin, QLPreviewControllerDat
       saveImageToGallery(base64: args["base64"] as? String ?? "", result: result)
     case "shareImage":
       shareImage(base64: args["base64"] as? String ?? "", result: result)
-    case "generateWebClip":
-      generateWebClip(
-        url: args["url"] as? String ?? "",
-        title: args["title"] as? String ?? "",
-        result: result
-      )
+    case "exportPDF":
+      exportPDF(url: args["url"] as? String ?? "", title: args["title"] as? String ?? "", result: result)
     case "clearWebDataTypes":
       let types = args["types"] as? [String] ?? []
       clearWebDataTypes(types, result: result)
@@ -404,8 +400,19 @@ public class NativeBridgePlugin: NSObject, FlutterPlugin, QLPreviewControllerDat
       result(["success": false, "error": "图片解码失败"])
       return
     }
-    UIImageWriteToSavedPhotosAlbum(image, nil, nil, nil)
+    // 使用完成回调确保保存成功后再返回
+    let selector = #selector(image(_:didFinishSavingWithError:contextInfo:))
+    UIImageWriteToSavedPhotosAlbum(image, self, selector, nil)
+    // 保存回调会异步触发，这里先返回成功（实际结果在回调中记录）
     result(["success": true])
+  }
+
+  @objc private func image(_ image: UIImage, didFinishSavingWithError error: Error?, contextInfo: UnsafeRawPointer) {
+    if let error = error {
+      NSLog("[NW-Save] 保存相册失败: \(error.localizedDescription)")
+    } else {
+      NSLog("[NW-Save] 保存相册成功")
+    }
   }
 
   // MARK: - 分享图片
@@ -428,74 +435,57 @@ public class NativeBridgePlugin: NSObject, FlutterPlugin, QLPreviewControllerDat
     }
   }
 
-  // MARK: - 生成 WebClip（添加到主屏幕）
+  // MARK: - 导出网页为 PDF
 
-  private func generateWebClip(url: String, title: String, result: @escaping FlutterResult) {
-    let uuid = UUID().uuidString
-    let uuid2 = UUID().uuidString
-    let xml = """
-    <?xml version="1.0" encoding="UTF-8"?>
-    <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
-    <plist version="1.0">
-    <dict>
-      <key>PayloadContent</key>
-      <array>
-        <dict>
-          <key>FullScreen</key>
-          <true/>
-          <key>IsRemovable</key>
-          <true/>
-          <key>Label</key>
-          <string>\(title)</string>
-          <key>PayloadDescription</key>
-          <string>添加 \(title) 到主屏幕</string>
-          <key>PayloadDisplayName</key>
-          <string>\(title)</string>
-          <key>PayloadIdentifier</key>
-          <string>com.newweb.webclip.\(uuid)</string>
-          <key>PayloadOrganization</key>
-          <string>未来浏览器</string>
-          <key>PayloadType</key>
-          <string>com.apple.webClip.managed</string>
-          <key>PayloadUUID</key>
-          <string>\(uuid2)</string>
-          <key>PayloadVersion</key>
-          <integer>1</integer>
-          <key>URL</key>
-          <string>\(url)</string>
-        </dict>
-      </array>
-      <key>PayloadDisplayName</key>
-      <string>\(title) - 主屏幕快捷方式</string>
-      <key>PayloadIdentifier</key>
-      <string>com.newweb.webclip</string>
-      <key>PayloadRemovalDisallowed</key>
-      <false/>
-      <key>PayloadType</key>
-      <string>Configuration</string>
-      <key>PayloadUUID</key>
-      <string>\(uuid)</string>
-      <key>PayloadVersion</key>
-      <integer>1</integer>
-    </dict>
-    </plist>
-    """
-    let dir = FileManager.default
-      .urls(for: .documentDirectory, in: .userDomainMask).first!
-      .appendingPathComponent("WebClip", isDirectory: true)
-    try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
-    let safeTitle = title.replacingOccurrences(of: "/", with: "_")
-    let file = dir.appendingPathComponent("\(safeTitle).mobileconfig")
-    do {
-      try xml.write(to: file, atomically: true, encoding: .utf8)
-      DispatchQueue.main.async {
-        let dc = UIDocumentInteractionController(url: file)
-        dc.delegate = self
-        dc.presentOptionsMenu(from: CGRect(x: UIScreen.main.bounds.midX, y: UIScreen.main.bounds.midY, width: 0, height: 0), in: UIApplication.shared.keyWindow?.rootViewController?.view ?? UIView(), animated: true)
+  private func exportPDF(url: String, title: String, result: @escaping FlutterResult) {
+    var logs: [String] = []
+    func slog(_ msg: String) {
+      NSLog("[NW-PDF] \(msg)")
+      logs.append(msg)
+    }
+    slog("exportPDF 入口, url=\(url)")
+    guard let webView = findWebView(for: url, logs: &logs) else {
+      slog("❌ 找不到 WKWebView")
+      result(["error": "找不到 WebView", "logs": logs])
+      return
+    }
+
+    let config = WKPDFConfiguration()
+    config.rect = CGRect(x: 0, y: 0, width: webView.scrollView.contentSize.width, height: webView.scrollView.contentSize.height)
+
+    webView.createPDF(configuration: config) { pdfResult in
+      switch pdfResult {
+      case .success(let pdfData):
+        slog("✅ PDF 生成成功, size=\(pdfData.count) bytes")
+        // 保存到临时文件
+        let dir = FileManager.default
+          .urls(for: .documentDirectory, in: .userDomainMask).first!
+          .appendingPathComponent("PDFExports", isDirectory: true)
+        try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        let safeTitle = title.isEmpty ? "网页" : title.replacingOccurrences(of: "/", with: "_")
+        let file = dir.appendingPathComponent("\(safeTitle).pdf")
+        do {
+          try pdfData.write(to: file)
+          slog("✅ PDF 已保存: \(file.path)")
+          // 弹出分享面板
+          DispatchQueue.main.async {
+            let activityVC = UIActivityViewController(activityItems: [file], applicationActivities: nil)
+            if let popover = activityVC.popoverPresentationController {
+              popover.sourceView = UIApplication.shared.keyWindow?.rootViewController?.view
+              popover.sourceRect = CGRect(x: UIScreen.main.bounds.midX, y: UIScreen.main.bounds.midY, width: 0, height: 0)
+              popover.permittedArrowDirections = []
+            }
+            UIApplication.shared.keyWindow?.rootViewController?.present(activityVC, animated: true)
+          }
+          result(["success": true, "path": file.path, "logs": logs])
+        } catch {
+          slog("❌ PDF 保存失败: \(error.localizedDescription)")
+          result(["error": error.localizedDescription, "logs": logs])
+        }
+      case .failure(let error):
+        slog("❌ PDF 生成失败: \(error.localizedDescription)")
+        result(["error": error.localizedDescription, "logs": logs])
       }
-      result(["success": true, "path": file.path])
-    } catch {
-      result(["success": false, "error": error.localizedDescription])
     }
   }
 
