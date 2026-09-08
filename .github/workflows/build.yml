@@ -96,8 +96,9 @@ jobs:
       # ============================================================
       - name: 编译应用
         run: |
-          # 移除 Xcode 项目中的 Development Team，确保无签名构建
-          sed -i '' 's/DEVELOPMENT_TEAM = [^;]*;//g' ios/Runner.xcodeproj/project.pbxproj || true
+          # 强制无签名构建
+          export CODE_SIGNING_ALLOWED=NO
+          export CODE_SIGNING_REQUIRED=NO
           flutter build ios --release --no-codesign
 
       - name: 正式签名（签名模式）
