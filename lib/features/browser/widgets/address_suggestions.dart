@@ -1,28 +1,24 @@
 import 'package:flutter/material.dart';
 
 import '../../../core/models/bookmark.dart';
-import '../../../core/models/history_entry.dart';
 
-/// 联想候选项。
+/// 联想候选项（仅书签）。
 class SuggestionItem {
   final String title;
   final String url;
-  final bool isBookmark;
-  const SuggestionItem({required this.title, required this.url, required this.isBookmark});
+  const SuggestionItem({required this.title, required this.url});
 }
 
-/// 地址栏输入联想下拉面板：历史记录 + 书签匹配。
+/// 地址栏输入联想下拉面板：仅匹配书签。
 class AddressSuggestions extends StatelessWidget {
   const AddressSuggestions({
     super.key,
     required this.suggestions,
     required this.onSelect,
-    required this.onDeleteHistory,
   });
 
   final List<SuggestionItem> suggestions;
   final ValueChanged<String> onSelect;
-  final ValueChanged<String> onDeleteHistory;
 
   @override
   Widget build(BuildContext context) {
@@ -40,10 +36,10 @@ class AddressSuggestions extends StatelessWidget {
             final item = suggestions[index];
             return ListTile(
               dense: true,
-              leading: Icon(
-                item.isBookmark ? Icons.star : Icons.history,
+              leading: const Icon(
+                Icons.star,
                 size: 16,
-                color: item.isBookmark ? const Color(0xFFFF9500) : const Color(0xFF8E8E93),
+                color: Color(0xFFFF9500),
               ),
               title: Text(
                 item.title.isEmpty ? item.url : item.title,
@@ -57,12 +53,6 @@ class AddressSuggestions extends StatelessWidget {
                 overflow: TextOverflow.ellipsis,
                 style: const TextStyle(fontSize: 12, color: Color(0xFF8E8E93)),
               ),
-              trailing: !item.isBookmark
-                  ? IconButton(
-                      icon: const Icon(Icons.close, size: 16, color: Color(0xFFC7C7CC)),
-                      onPressed: () => onDeleteHistory(item.url),
-                    )
-                  : null,
               onTap: () => onSelect(item.url),
             );
           },
@@ -72,10 +62,9 @@ class AddressSuggestions extends StatelessWidget {
   }
 }
 
-/// 从历史和书签中筛选联想项。
+/// 从书签中筛选联想项。
 List<SuggestionItem> filterSuggestions(
   String query,
-  List<HistoryEntry> history,
   List<Bookmark> bookmarks, {
   int limit = 15,
 }) {
@@ -84,21 +73,11 @@ List<SuggestionItem> filterSuggestions(
   final result = <SuggestionItem>[];
   final seen = <String>{};
 
-  // 书签优先
   for (final b in bookmarks) {
     if (seen.contains(b.url)) continue;
     if (b.url.toLowerCase().contains(q) || b.title.toLowerCase().contains(q)) {
-      result.add(SuggestionItem(title: b.title, url: b.url, isBookmark: true));
+      result.add(SuggestionItem(title: b.title, url: b.url));
       seen.add(b.url);
-      if (result.length >= limit) return result;
-    }
-  }
-  // 历史记录
-  for (final h in history) {
-    if (seen.contains(h.url)) continue;
-    if (h.url.toLowerCase().contains(q) || h.title.toLowerCase().contains(q)) {
-      result.add(SuggestionItem(title: h.title, url: h.url, isBookmark: false));
-      seen.add(h.url);
       if (result.length >= limit) return result;
     }
   }

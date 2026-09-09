@@ -1,5 +1,4 @@
 import 'package:flutter/material.dart';
-import 'package:flutter/services.dart';
 
 import 'site_security_sheet.dart';
 
@@ -21,7 +20,6 @@ class AddressBar extends StatefulWidget {
     required this.canGoForward,
     required this.searchEngine,
     required this.onSwitchSearchEngine,
-    required this.onCopyLink,
     required this.onFocusChanged,
     this.focusNode,
     this.visible = true,
@@ -41,7 +39,6 @@ class AddressBar extends StatefulWidget {
   final bool canGoForward;
   final String searchEngine;
   final ValueChanged<String> onSwitchSearchEngine;
-  final VoidCallback onCopyLink;
   final ValueChanged<bool> onFocusChanged;
   final FocusNode? focusNode;
   final bool visible;
@@ -179,65 +176,6 @@ class _AddressBarState extends State<AddressBar> {
       case SecurityLevel.danger:
         return Icons.error;
     }
-  }
-
-  /// 长按地址栏弹出自定义菜单。
-  void _showLongPressMenu() {
-    showModalBottomSheet<void>(
-      context: context,
-      backgroundColor: Colors.white,
-      shape: const RoundedRectangleBorder(
-        borderRadius: BorderRadius.vertical(top: Radius.circular(16)),
-      ),
-      builder: (ctx) => SafeArea(
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            const SizedBox(height: 8),
-            Center(
-              child: Container(
-                width: 36, height: 5,
-                decoration: BoxDecoration(color: const Color(0xFFD1D5DB), borderRadius: BorderRadius.circular(3)),
-              ),
-            ),
-            const SizedBox(height: 12),
-            _menuItem(Icons.content_paste_go, '粘贴并跳转', () async {
-              Navigator.pop(ctx);
-              final data = await Clipboard.getData('text/plain');
-              final text = data?.text?.trim() ?? '';
-              if (text.isNotEmpty) {
-                widget.controller.text = text;
-                widget.onSubmit(text);
-              }
-            }),
-            _menuItem(Icons.paste, '粘贴', () async {
-              Navigator.pop(ctx);
-              final data = await Clipboard.getData('text/plain');
-              if (data?.text != null) {
-                widget.controller.text = data!.text!;
-              }
-            }),
-            _menuItem(Icons.copy, '复制链接', () {
-              Navigator.pop(ctx);
-              widget.onCopyLink();
-            }),
-            _menuItem(Icons.select_all, '全选', () {
-              Navigator.pop(ctx);
-              _focusNode.requestFocus();
-              widget.controller.selection = TextSelection(
-                baseOffset: 0,
-                extentOffset: widget.controller.text.length,
-              );
-            }),
-            _menuItem(Icons.clear, '清除地址', () {
-              Navigator.pop(ctx);
-              widget.controller.clear();
-            }),
-            const SizedBox(height: 8),
-          ],
-        ),
-      ),
-    );
   }
 
   /// 搜索引擎快速切换菜单。
@@ -392,7 +330,6 @@ class _AddressBarState extends State<AddressBar> {
                             _focusNode.requestFocus();
                           });
                         },
-                        onLongPress: _showLongPressMenu,
                         child: Padding(
                           padding: const EdgeInsets.symmetric(vertical: 8),
                           child: _buildDomainHighlight(),

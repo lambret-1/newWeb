@@ -7,7 +7,6 @@ import '../../core/services/debug_logger.dart';
 import '../../core/services/password_service.dart';
 import '../../core/services/site_security_manager.dart';
 import 'package:flutter/cupertino.dart';
-import 'package:flutter/services.dart';
 import 'package:flutter/material.dart';
 import 'package:http/http.dart' as http;
 import 'package:package_info_plus/package_info_plus.dart';
@@ -68,13 +67,10 @@ class _BrowserScreenState extends State<BrowserScreen> with WidgetsBindingObserv
   // 地址栏增强
   List<SuggestionItem> _suggestions = [];
   bool _showSuggestions = false;
-  String? _clipboardUrl;
   String _tempSearchEngine = 'baidu';
   bool _addressBarVisible = true;
   bool _autoHideEnabled = false;
-  bool _clipboardDetectEnabled = true;
   bool _isAddressFocused = false;
-  DateTime? _lastClipboardCheck;
 
   @override
   void initState() {
@@ -101,23 +97,20 @@ class _BrowserScreenState extends State<BrowserScreen> with WidgetsBindingObserv
   }
 
   Future<void> _loadAddressBarSettings() async {
-    final clipboard = await SettingsService.instance.isClipboardDetectEnabled();
     final autoHide = await SettingsService.instance.isAutoHideAddressBarEnabled();
     final engine = await SettingsService.instance.getSearchEngine();
     if (!mounted) return;
     setState(() {
-      _clipboardDetectEnabled = clipboard;
       _autoHideEnabled = autoHide;
       _tempSearchEngine = engine;
     });
   }
 
-  /// 前台/后台生命周期变化：回到前台时自动检查更新 + 剪贴板检测。
+  /// 前台/后台生命周期变化：回到前台时自动检查更新。
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
     if (state == AppLifecycleState.resumed) {
       _autoCheckUpdate();
-      _checkClipboardUrl();
     }
   }
 
@@ -314,11 +307,10 @@ class _BrowserScreenState extends State<BrowserScreen> with WidgetsBindingObserv
       });
       return;
     }
-    final history = await DatabaseHelper.instance.getHistory(limit: 200);
     final bookmarks = await DatabaseHelper.instance.getBookmarks();
     if (!mounted) return;
     setState(() {
-      _suggestions = filterSuggestions(query, history, bookmarks);
+      _suggestions = filterSuggestions(query, bookmarks);
       _showSuggestions = true;
     });
   }
@@ -326,43 +318,6 @@ class _BrowserScreenState extends State<BrowserScreen> with WidgetsBindingObserv
   void _onSelectSuggestion(String url) {
     _addressController.text = url;
     _submit(url);
-  }
-
-  Future<void> _deleteHistorySuggestion(String url) async {
-    await DatabaseHelper.instance.deleteHistoryByUrl(url);
-    _updateSuggestions(_addressController.text);
-  }
-
-  // MARK: - 剪贴板网址检测
-
-  Future<void> _checkClipboardUrl() async {
-    if (!_clipboardDetectEnabled) return;
-    // 冷却时间：30秒内不重复检测，避免频繁触发系统剪贴板提示
-    final now = DateTime.now();
-    if (_lastClipboardCheck != null &&
-        now.difference(_lastClipboardCheck!).inSeconds < 30) {
-      return;
-    }
-    _lastClipboardCheck = now;
-    try {
-      final data = await Clipboard.getData('text/plain');
-      final text = data?.text?.trim() ?? '';
-      if (text.isEmpty) return;
-      final isUrl = _isLikelyUrl(text);
-      if (isUrl && text != _tabManager.activeTab?.url) {
-        if (!mounted) return;
-        setState(() => _clipboardUrl = text);
-      }
-    } catch (_) {}
-  }
-
-  // MARK: - 复制链接
-
-  void _copyCurrentLink() {
-    final url = _tabManager.activeTab?.url ?? '';
-    if (url.isEmpty) return;
-    Clipboard.setData(ClipboardData(text: url));
-    _showMessage('链接已复制');
   }
 
   // MARK: - 搜索引擎切换
@@ -1348,39 +1303,6 @@ class _BrowserScreenState extends State<BrowserScreen> with WidgetsBindingObserv
             bottom: false,
             child: Column(
               children: [
-                // 剪贴板网址提示条
-                if (_clipboardUrl != null)
-                  Container(
-                    color: const Color(0xFFE3F2FD),
-                    padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
-                    child: Row(
-                      children: [
-                        const Icon(Icons.content_paste, size: 14, color: Color(0xFF007AFF)),
-                        const SizedBox(width: 6),
-                        Expanded(
-                          child: Text(
-                            '发现剪贴板网址：$_clipboardUrl',
-                            maxLines: 1,
-                            overflow: TextOverflow.ellipsis,
-                            style: const TextStyle(fontSize: 12, color: Color(0xFF1C1C1E)),
-                          ),
-                        ),
-                        TextButton(
-                          onPressed: () {
-                            final url = _clipboardUrl!;
-                            setState(() => _clipboardUrl = null);
-                            _addressController.text = url;
-                            _submit(url);
-                          },
-                          child: const Text('打开', style: TextStyle(fontSize: 13, color: Color(0xFF007AFF))),
-                        ),
-                        IconButton(
-                          icon: const Icon(Icons.close, size: 16, color: Color(0xFF8E8E93)),
-                          onPressed: () => setState(() => _clipboardUrl = null),
-                        ),
-                      ],
-                    ),
-                  ),
                 ListenableBuilder(
                   listenable: _tabManager,
                   builder: (context, _) {
@@ -1400,7 +1322,6 @@ class _BrowserScreenState extends State<BrowserScreen> with WidgetsBindingObserv
                       canGoForward: _canGoForward,
                       searchEngine: _tempSearchEngine,
                       onSwitchSearchEngine: _switchSearchEngine,
-                      onCopyLink: _copyCurrentLink,
                       onFocusChanged: _onAddressFocusChanged,
                       focusNode: _addressFocusNode,
                       visible: _addressBarVisible,
@@ -1543,7 +1464,6 @@ class _BrowserScreenState extends State<BrowserScreen> with WidgetsBindingObserv
                         child: AddressSuggestions(
                           suggestions: _suggestions,
                           onSelect: _onSelectSuggestion,
-                          onDeleteHistory: _deleteHistorySuggestion,
                         ),
                       ),
                   ],

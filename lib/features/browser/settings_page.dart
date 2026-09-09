@@ -33,7 +33,6 @@ class _SettingsPageState extends State<SettingsPage> {
   List<String> _autoTranslateDomains = [];
   String _version = '';
   bool _autoUpdateCheck = true;
-  bool _clipboardDetect = true;
   bool _autoHideAddressBar = false;
 
   @override
@@ -56,7 +55,6 @@ class _SettingsPageState extends State<SettingsPage> {
     final mode = await settings.getTranslateMode();
     final domains = await settings.getAutoTranslateDomains();
     final autoUpdate = await settings.isAutoUpdateCheckEnabled();
-    final clipboard = await settings.isClipboardDetectEnabled();
     final autoHide = await settings.isAutoHideAddressBarEnabled();
     if (!mounted) return;
     setState(() {
@@ -67,7 +65,6 @@ class _SettingsPageState extends State<SettingsPage> {
       _translateMode = mode;
       _autoTranslateDomains = domains;
       _autoUpdateCheck = autoUpdate;
-      _clipboardDetect = clipboard;
       _autoHideAddressBar = autoHide;
     });
   }
@@ -547,16 +544,6 @@ class _SettingsPageState extends State<SettingsPage> {
                 onChanged: (value) async {
                   setState(() => _adBlock = value);
                   await SettingsService.instance.setAdBlockEnabled(value);
-                },
-              ),
-              SwitchListTile(
-                secondary: const Icon(Icons.content_paste, size: 22, color: Color(0xFF374151)),
-                title: const Text('剪贴板网址检测', style: TextStyle(fontSize: 15)),
-                subtitle: const Text('回到前台时检测剪贴板中的网址并提示打开', style: TextStyle(fontSize: 12, color: Color(0xFF9CA3AF))),
-                value: _clipboardDetect,
-                onChanged: (value) async {
-                  setState(() => _clipboardDetect = value);
-                  await SettingsService.instance.setClipboardDetectEnabled(value);
                 },
               ),
               SwitchListTile(
