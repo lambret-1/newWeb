@@ -88,6 +88,8 @@ jobs:
             git commit -m "ci: 自动递增版本至 v${VERSION}"
             echo "版本变更已提交"
           fi
+          # 推送前先同步远程最新代码，避免 non-fast-forward
+          git pull origin main --rebase
           git push origin main
           COMMIT_HASH=$(git rev-parse --short HEAD)
           echo "commit_hash=$COMMIT_HASH" >> $GITHUB_OUTPUT
@@ -322,6 +324,7 @@ jobs:
             echo "README 无变更"
           else
             git commit -m "docs: 自动追加 v${VERSION} 更新日志"
+            git pull origin main --rebase
             git push origin main
             echo "README 更新日志已提交"
           fi
