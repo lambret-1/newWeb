@@ -53,6 +53,8 @@ dependencies:
   share_plus: ^10.1.4
   # 动态读取应用版本号
   package_info_plus: ^8.3.0
+  # 加速度传感器（重力感应排序）
+  sensors_plus: ^6.1.1
 
 dev_dependencies:
   flutter_test:

@@ -21,6 +21,7 @@ env:
   IOS_DEPLOYMENT_TARGET: '15.0'
   ARTIFACT_RETENTION_DAYS: 90
   IPA_FILE: NewWeb.ipa
+  TZ: Asia/Shanghai
 
 # 并发控制：同一分支只允许一个构建运行，避免版本冲突
 concurrency:

@@ -28,6 +28,7 @@ import 'offline_pages_page.dart';
 import '../password/password_vault_page.dart';
 import 'reader_page.dart';
 import 'screenshot_result_page.dart';
+import 'widgets/more_menu_sheet.dart';
 import 'settings_page.dart';
 import 'source_code_page.dart';
 import 'tab_manager.dart';
@@ -594,126 +595,45 @@ class _BrowserScreenState extends State<BrowserScreen> with WidgetsBindingObserv
       shape: const RoundedRectangleBorder(
         borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
       ),
-      builder: (sheetContext) => SafeArea(
-        child: SizedBox(
-          height: MediaQuery.of(context).size.height * 0.6,
-          child: Column(
-            children: [
-              // 顶部拖拽横条
-              const SizedBox(height: 8),
-              Center(
-                child: Container(
-                  width: 36,
-                  height: 5,
-                  decoration: BoxDecoration(
-                    color: const Color(0xFFD1D5DB),
-                    borderRadius: BorderRadius.circular(3),
-                  ),
-                ),
-              ),
-              const SizedBox(height: 12),
-              Expanded(
-                child: ListView(
-                  shrinkWrap: true,
-                  children: [
-              // 第一段：常用功能网格（4列）
-              Padding(
-                padding: const EdgeInsets.symmetric(horizontal: 16),
-                child: Row(
-                  mainAxisAlignment: MainAxisAlignment.spaceAround,
-                  children: [
-                    _gridItem(
-                      icon: Icons.bookmark_border,
-                      label: '书签',
-                      onTap: () => _openBookmarks(sheetContext),
-                    ),
-                    _gridItem(
-                      icon: Icons.history,
-                      label: '历史',
-                      onTap: () => _openHistory(sheetContext),
-                    ),
-                    _gridItem(
-                      icon: Icons.file_download_outlined,
-                      label: '下载',
-                      onTap: () => _openDownloads(sheetContext),
-                    ),
-                    _gridItem(
-                      icon: Icons.settings_outlined,
-                      label: '设置',
-                      onTap: () => _openSettings(sheetContext),
-                    ),
-                  ],
-                ),
-              ),
-              const SizedBox(height: 16),
-              const Divider(height: 1, color: Color(0xFFF0F0F0)),
-              // 第二段：网页操作
-              _sectionTitle('网页操作'),
-              _sheetItem(
-                icon: Icons.add,
-                label: '添加到书签',
-                onTap: () => _addBookmark(sheetContext),
-              ),
-              _sheetItem(
-                icon: Icons.translate,
-                label: '翻译此页',
-                onTap: () => _translatePageFromSheet(sheetContext),
-              ),
-              _sheetItem(
-                icon: Icons.menu_book_outlined,
-                label: '阅读模式',
-                onTap: () => _openReader(sheetContext),
-              ),
-              _sheetItem(
-                icon: Icons.download_outlined,
-                label: '保存离线页面',
-                onTap: () => _saveOffline(sheetContext),
-              ),
-              _sheetItem(
-                icon: Icons.password_outlined,
-                label: '密码本',
-                onTap: () {
-                  Navigator.pop(sheetContext);
-                  Navigator.of(context).push(
-                    MaterialPageRoute(builder: (_) => const PasswordVaultPage()),
-                  );
-                },
-              ),
-              _sheetItem(
-                icon: Icons.straighten,
-                label: '网页长截图',
-                onTap: () => _captureFullPage(sheetContext),
-              ),
-              _sheetItem(
-                icon: Icons.image_outlined,
-                label: '导出网页 PDF',
-                onTap: () => _exportPDF(sheetContext),
-              ),
-              _sheetItem(
-                icon: Icons.code,
-                label: '查看网页源码',
-                onTap: () => _viewSourceCode(sheetContext),
-              ),
-              const Divider(height: 1, color: Color(0xFFF0F0F0)),
-              // 第三段：其他
-              _sectionTitle('其他'),
-              _sheetItem(
-                icon: Icons.cleaning_services_outlined,
-                label: '缓存管理',
-                onTap: () => _openCacheManager(sheetContext),
-              ),
-              _sheetItem(
-                icon: Icons.offline_pin_outlined,
-                label: '离线页面',
-                onTap: () => _openOfflinePages(sheetContext),
-              ),
-              const SizedBox(height: 8),
-                  ],
-                ),
-              ),
-            ],
-          ),
-        ),
+      builder: (sheetContext) => MoreMenuSheet(
+        items: [
+          // 顶部网格
+          MenuItem(key: 'bookmarks', icon: Icons.bookmark_border, label: '书签', section: '', isGrid: true,
+              onTap: () => _openBookmarks(sheetContext)),
+          MenuItem(key: 'history', icon: Icons.history, label: '历史', section: '', isGrid: true,
+              onTap: () => _openHistory(sheetContext)),
+          MenuItem(key: 'downloads', icon: Icons.file_download_outlined, label: '下载', section: '', isGrid: true,
+              onTap: () => _openDownloads(sheetContext)),
+          MenuItem(key: 'settings', icon: Icons.settings_outlined, label: '设置', section: '', isGrid: true,
+              onTap: () => _openSettings(sheetContext)),
+          // 网页操作
+          MenuItem(key: 'add_bookmark', icon: Icons.add, label: '添加到书签', section: '网页操作',
+              onTap: () => _addBookmark(sheetContext)),
+          MenuItem(key: 'translate', icon: Icons.translate, label: '翻译此页', section: '网页操作',
+              onTap: () => _translatePageFromSheet(sheetContext)),
+          MenuItem(key: 'reader', icon: Icons.menu_book_outlined, label: '阅读模式', section: '网页操作',
+              onTap: () => _openReader(sheetContext)),
+          MenuItem(key: 'offline_save', icon: Icons.download_outlined, label: '保存离线页面', section: '网页操作',
+              onTap: () => _saveOffline(sheetContext)),
+          MenuItem(key: 'password', icon: Icons.password_outlined, label: '密码本', section: '网页操作',
+              onTap: () {
+                Navigator.pop(sheetContext);
+                Navigator.of(context).push(
+                  MaterialPageRoute(builder: (_) => const PasswordVaultPage()),
+                );
+              }),
+          MenuItem(key: 'screenshot', icon: Icons.straighten, label: '网页长截图', section: '网页操作',
+              onTap: () => _captureFullPage(sheetContext)),
+          MenuItem(key: 'export_pdf', icon: Icons.image_outlined, label: '导出网页 PDF', section: '网页操作',
+              onTap: () => _exportPDF(sheetContext)),
+          MenuItem(key: 'view_source', icon: Icons.code, label: '查看网页源码', section: '网页操作',
+              onTap: () => _viewSourceCode(sheetContext)),
+          // 其他
+          MenuItem(key: 'cache', icon: Icons.cleaning_services_outlined, label: '缓存管理', section: '其他',
+              onTap: () => _openCacheManager(sheetContext)),
+          MenuItem(key: 'offline_pages', icon: Icons.offline_pin_outlined, label: '离线页面', section: '其他',
+              onTap: () => _openOfflinePages(sheetContext)),
+        ],
       ),
     );
   }
@@ -800,67 +720,6 @@ class _BrowserScreenState extends State<BrowserScreen> with WidgetsBindingObserv
     Navigator.of(context).push(MaterialPageRoute(
       builder: (_) => SourceCodePage(url: activeTab.url, title: activeTab.title),
     ));
-  }
-
-  Widget _sectionTitle(String title) {
-    return Padding(
-      padding: const EdgeInsets.fromLTRB(20, 12, 16, 4),
-      child: Align(
-        alignment: Alignment.centerLeft,
-        child: Text(
-          title,
-          style: const TextStyle(
-            fontSize: 12,
-            color: Color(0xFF9CA3AF),
-            fontWeight: FontWeight.w500,
-          ),
-        ),
-      ),
-    );
-  }
-
-  Widget _gridItem({
-    required IconData icon,
-    required String label,
-    required VoidCallback onTap,
-  }) {
-    return GestureDetector(
-      onTap: onTap,
-      behavior: HitTestBehavior.opaque,
-      child: Column(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          Container(
-            width: 48,
-            height: 48,
-            alignment: Alignment.center,
-            decoration: BoxDecoration(
-              color: const Color(0xFFF5F6F8),
-              borderRadius: BorderRadius.circular(14),
-            ),
-            child: Icon(icon, size: 24, color: const Color(0xFF007AFF)),
-          ),
-          const SizedBox(height: 6),
-          Text(
-            label,
-            style: const TextStyle(fontSize: 11, color: Color(0xFF374151)),
-          ),
-        ],
-      ),
-    );
-  }
-
-  Widget _sheetItem({
-    required IconData icon,
-    required String label,
-    required VoidCallback onTap,
-  }) {
-    return ListTile(
-      leading: Icon(icon, size: 22, color: const Color(0xFF374151)),
-      title: Text(label, style: const TextStyle(fontSize: 15)),
-      trailing: const Icon(Icons.chevron_right, size: 18, color: Color(0xFFC7C7CC)),
-      onTap: onTap,
-    );
   }
 
   void _openBookmarks(BuildContext sheetContext) {
