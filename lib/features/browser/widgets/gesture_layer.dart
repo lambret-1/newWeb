@@ -14,6 +14,7 @@ class GestureLayer extends StatefulWidget {
     required this.isAtTop,
     required this.onRefresh,
     this.onPullToFocus,
+    this.onTapPage,
   });
 
   final Widget child;
@@ -26,6 +27,9 @@ class GestureLayer extends StatefulWidget {
 
   /// 页面顶部轻下拉时触发（用于聚焦地址栏），下拉距离小于刷新阈值时调用。
   final VoidCallback? onPullToFocus;
+
+  /// 点击页面非边缘区域时触发（用于让地址栏失焦）。
+  final VoidCallback? onTapPage;
 
   @override
   State<GestureLayer> createState() => _GestureLayerState();
@@ -129,6 +133,12 @@ class _GestureLayerState extends State<GestureLayer> {
         _pullDistance = 0;
       });
     } else {
+      // 轻触页面（非边缘、非下拉）：通知外部让地址栏失焦
+      if (!_edgeStartAtLeft &&
+          !_edgeStartAtRight &&
+          delta.distance < 10) {
+        widget.onTapPage?.call();
+      }
       setState(() {
         _pullDistance = 0;
       });

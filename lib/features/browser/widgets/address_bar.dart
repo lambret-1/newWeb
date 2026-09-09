@@ -383,7 +383,15 @@ class _AddressBarState extends State<AddressBar> {
                         ),
                       )
                     : GestureDetector(
-                        onTap: () => _focusNode.requestFocus(),
+                        onTap: () {
+                          // 先切换到输入态显示 TextField，下一帧再请求焦点
+                          // 否则 focusNode 没有绑定的输入框，无法获得焦点
+                          setState(() => _isFocused = true);
+                          widget.onFocusChanged(true);
+                          WidgetsBinding.instance.addPostFrameCallback((_) {
+                            _focusNode.requestFocus();
+                          });
+                        },
                         onLongPress: _showLongPressMenu,
                         child: Padding(
                           padding: const EdgeInsets.symmetric(vertical: 8),

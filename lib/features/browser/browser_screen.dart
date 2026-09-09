@@ -412,6 +412,13 @@ class _BrowserScreenState extends State<BrowserScreen> with WidgetsBindingObserv
     });
   }
 
+  /// 点击页面区域时让地址栏失焦。
+  void _unfocusAddress() {
+    if (_addressFocusNode.hasFocus) {
+      _addressFocusNode.unfocus();
+    }
+  }
+
   void _openTabSwitcher() {
     FocusScope.of(context).unfocus();
     // 先截当前页快照（最多等 800ms），再打开标签切换页，确保快照最新
@@ -1472,6 +1479,7 @@ class _BrowserScreenState extends State<BrowserScreen> with WidgetsBindingObserv
                         await _currentWebView()?.reload();
                       },
                       onPullToFocus: _pullToFocusAddressBar,
+                      onTapPage: _unfocusAddress,
                       child: IndexedStack(
                     index: _tabManager.tabs.indexWhere((t) => t.id == activeId),
                     children: _tabManager.tabs.map((tab) {
