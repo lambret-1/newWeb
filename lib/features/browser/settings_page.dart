@@ -13,6 +13,7 @@ import '../../core/services/settings_service.dart';
 import '../../native/native_bridge.dart';
 import 'adblock_custom_page.dart';
 import 'cache_manager_page.dart';
+import 'sensitivity_settings_page.dart';
 import '../password/password_vault_page.dart';
 import 'debug_log_page.dart';
 
@@ -554,6 +555,17 @@ class _SettingsPageState extends State<SettingsPage> {
                 onChanged: (value) async {
                   setState(() => _autoHideAddressBar = value);
                   await SettingsService.instance.setAutoHideAddressBarEnabled(value);
+                },
+              ),
+              ListTile(
+                leading: const Icon(Icons.touch_app, size: 22, color: Color(0xFF374151)),
+                title: const Text('手势灵敏度', style: TextStyle(fontSize: 15)),
+                subtitle: const Text('调节边缘返回与下拉刷新的触发灵敏度', style: TextStyle(fontSize: 12, color: Color(0xFF9CA3AF))),
+                trailing: const Icon(Icons.chevron_right, color: Color(0xFFC7C7CC)),
+                onTap: () {
+                  Navigator.of(context).push(
+                    MaterialPageRoute(builder: (_) => const SensitivitySettingsPage()),
+                  );
                 },
               ),
             ],

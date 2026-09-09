@@ -14,6 +14,8 @@ class GestureLayer extends StatefulWidget {
     required this.onEdgeForward,
     required this.isAtTop,
     required this.onRefresh,
+    this.edgeThreshold = 60,
+    this.pullThreshold = 80,
     this.onPullToFocus,
     this.onTapPage,
   });
@@ -25,6 +27,12 @@ class GestureLayer extends StatefulWidget {
   /// 查询当前页面是否在顶部（供下拉刷新判定）。
   final Future<bool> Function() isAtTop;
   final Future<void> Function() onRefresh;
+
+  /// 边缘手势触发阈值（pt），值越小越灵敏。
+  final double edgeThreshold;
+
+  /// 下拉刷新触发阈值（pt），值越小越灵敏。
+  final double pullThreshold;
 
   /// 页面顶部轻下拉时触发（用于聚焦地址栏），下拉距离小于刷新阈值时调用。
   final VoidCallback? onPullToFocus;
@@ -38,9 +46,7 @@ class GestureLayer extends StatefulWidget {
 
 class _GestureLayerState extends State<GestureLayer> {
   static const double _edgeWidth = 28;
-  static const double _edgeThreshold = 60;
   static const Duration _edgeMaxDuration = Duration(milliseconds: 700);
-  static const double _pullThreshold = 80;
   static const double _pullMaxDistance = 90;
 
   Offset? _downPosition;
@@ -98,12 +104,12 @@ class _GestureLayerState extends State<GestureLayer> {
 
     // 1. 边缘手势：返回 / 前进
     if (_edgeStartAtLeft &&
-        delta.dx > _edgeThreshold &&
+        delta.dx > widget.edgeThreshold &&
         delta.dx.abs() > delta.dy.abs() &&
         duration <= _edgeMaxDuration) {
       widget.onEdgeBack();
     } else if (_edgeStartAtRight &&
-        delta.dx < -_edgeThreshold &&
+        delta.dx < -widget.edgeThreshold &&
         delta.dx.abs() > delta.dy.abs() &&
         duration <= _edgeMaxDuration) {
       widget.onEdgeForward();
@@ -114,7 +120,7 @@ class _GestureLayerState extends State<GestureLayer> {
         !_edgeStartAtRight &&
         _pullInUpperHalf &&
         _pullAtTop &&
-        delta.dy > _pullThreshold &&
+        delta.dy > widget.pullThreshold &&
         delta.dy.abs() > delta.dx.abs() &&
         !_refreshing) {
       setState(() {
@@ -132,7 +138,7 @@ class _GestureLayerState extends State<GestureLayer> {
         _pullInUpperHalf &&
         _pullAtTop &&
         delta.dy > 30 &&
-        delta.dy <= _pullThreshold &&
+        delta.dy <= widget.pullThreshold &&
         delta.dy.abs() > delta.dx.abs()) {
       // 轻下拉（30-80pt）：聚焦地址栏
       widget.onPullToFocus?.call();

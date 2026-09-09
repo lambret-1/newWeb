@@ -19,6 +19,8 @@ class SettingsService {
   static const String kLastUpdateCheck = 'last_update_check';
   static const String kUpdateSkippedVersion = 'update_skipped_version';
   static const String kAutoHideAddressBar = 'auto_hide_address_bar';
+  static const String kEdgeSensitivity = 'edge_sensitivity';
+  static const String kPullSensitivity = 'pull_sensitivity';
 
   static const Map<String, String> searchEngines = {
     'baidu': '百度',
@@ -211,5 +213,31 @@ class SettingsService {
   Future<void> setAutoHideAddressBarEnabled(bool value) async {
     final prefs = await SharedPreferences.getInstance();
     await prefs.setBool(kAutoHideAddressBar, value);
+  }
+
+  // ---------- 手势灵敏度 ----------
+
+  /// 边缘手势灵敏度（触发阈值，单位 pt，默认 60，范围 40-100）。
+  /// 值越小越灵敏（更容易触发返回/前进）。
+  Future<double> getEdgeSensitivity() async {
+    final prefs = await SharedPreferences.getInstance();
+    return prefs.getDouble(kEdgeSensitivity) ?? 60;
+  }
+
+  Future<void> setEdgeSensitivity(double value) async {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setDouble(kEdgeSensitivity, value);
+  }
+
+  /// 下拉刷新灵敏度（触发阈值，单位 pt，默认 80，范围 50-120）。
+  /// 值越小越灵敏（更容易触发刷新）。
+  Future<double> getPullSensitivity() async {
+    final prefs = await SharedPreferences.getInstance();
+    return prefs.getDouble(kPullSensitivity) ?? 80;
+  }
+
+  Future<void> setPullSensitivity(double value) async {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setDouble(kPullSensitivity, value);
   }
 }

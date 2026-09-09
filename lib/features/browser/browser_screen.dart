@@ -69,6 +69,10 @@ class _BrowserScreenState extends State<BrowserScreen> with WidgetsBindingObserv
   bool _autoHideEnabled = false;
   bool _isAddressFocused = false;
 
+  // 手势灵敏度
+  double _edgeSensitivity = 60;
+  double _pullSensitivity = 80;
+
   @override
   void initState() {
     super.initState();
@@ -91,10 +95,14 @@ class _BrowserScreenState extends State<BrowserScreen> with WidgetsBindingObserv
   Future<void> _loadAddressBarSettings() async {
     final autoHide = await SettingsService.instance.isAutoHideAddressBarEnabled();
     final engine = await SettingsService.instance.getSearchEngine();
+    final edgeSens = await SettingsService.instance.getEdgeSensitivity();
+    final pullSens = await SettingsService.instance.getPullSensitivity();
     if (!mounted) return;
     setState(() {
       _autoHideEnabled = autoHide;
       _tempSearchEngine = engine;
+      _edgeSensitivity = edgeSens;
+      _pullSensitivity = pullSens;
     });
   }
 
@@ -1361,6 +1369,8 @@ class _BrowserScreenState extends State<BrowserScreen> with WidgetsBindingObserv
                   onRefresh: () async {
                     await _currentWebView()?.reload();
                   },
+                  edgeThreshold: _edgeSensitivity,
+                  pullThreshold: _pullSensitivity,
                   onPullToFocus: _pullToFocusAddressBar,
                   onTapPage: _unfocusAddress,
                   child: IndexedStack(
