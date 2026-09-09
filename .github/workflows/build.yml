@@ -332,11 +332,9 @@ jobs:
         with:
           tag_name: v${{ steps.info.outputs.version }}
           name: 未来浏览器 v${{ steps.info.outputs.version }}
-          draft: true
+          draft: false
           body: |
             ## 未来浏览器 v${{ steps.info.outputs.version }}
-
-            > 本 Release 为草稿状态，人工审核后请手动点击「发布」。
 
             ### 构建信息
             | 项目 | 内容 |
