@@ -37,6 +37,7 @@ class WebViewPage extends StatefulWidget {
     this.onScrollSaved,
     this.onLoginFormDetected,
     this.onLoginFormSubmitted,
+    this.onScrollDirection,
   });
 
   final ValueChanged<double> onProgress;
@@ -76,6 +77,9 @@ class WebViewPage extends StatefulWidget {
   /// 登录表单提交时回调（url, username, password）。
   final void Function(String url, String username, String password)?
       onLoginFormSubmitted;
+
+  /// 页面滚动方向回调：正数=向下滚动，负数=向上滚动。
+  final ValueChanged<double>? onScrollDirection;
 
   @override
   State<WebViewPage> createState() => WebViewPageState();
@@ -143,6 +147,16 @@ class WebViewPageState extends State<WebViewPage> {
         onMessageReceived: _bridge.messageHandler(),
       ),
     );
+    // 滚动方向监听通道
+    unawaited(
+      controller.addJavaScriptChannel(
+        'ScrollBridge',
+        onMessageReceived: (JavaScriptMessage message) {
+          final dir = double.tryParse(message.message) ?? 0;
+          widget.onScrollDirection?.call(dir);
+        },
+      ),
+    );
     unawaited(
       controller.setNavigationDelegate(
         NavigationDelegate(
@@ -176,6 +190,32 @@ class WebViewPageState extends State<WebViewPage> {
             unawaited(_maybeAutoTranslate(url));
             // 登录表单检测 + 自动填充
             unawaited(_detectLoginForm(url));
+            // 注入滚动方向监听
+            unawaited(
+              controller.runJavaScript('''
+                (function(){
+                  if (window.__scrollListenerInstalled) return;
+                  window.__scrollListenerInstalled = true;
+                  var lastY = window.scrollY;
+                  var ticking = false;
+                  window.addEventListener('scroll', function(){
+                    if (ticking) return;
+                    ticking = true;
+                    requestAnimationFrame(function(){
+                      var curY = window.scrollY;
+                      var delta = curY - lastY;
+                      if (Math.abs(delta) > 5) {
+                        if (typeof ScrollBridge !== 'undefined') {
+                          ScrollBridge.postMessage(String(delta));
+                        }
+                        lastY = curY;
+                      }
+                      ticking = false;
+                    });
+                  }, {passive: true});
+                })();
+              ''').catchError((_) {}),
+            );
           },
           onUrlChange: (UrlChange change) {
             widget.onUrlChanged(change.url?.toString());

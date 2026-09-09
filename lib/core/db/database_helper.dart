@@ -189,4 +189,10 @@ class DatabaseHelper {
     final db = await database;
     await db.delete('history', where: 'id = ?', whereArgs: [id]);
   }
+
+  /// 按 URL 删除历史记录（联想下拉中删除单条）。
+  Future<void> deleteHistoryByUrl(String url) async {
+    final db = await database;
+    await db.delete('history', where: 'url = ?', whereArgs: [url]);
+  }
 }

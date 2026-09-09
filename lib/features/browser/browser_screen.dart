@@ -7,6 +7,7 @@ import '../../core/services/debug_logger.dart';
 import '../../core/services/password_service.dart';
 import '../../core/services/site_security_manager.dart';
 import 'package:flutter/cupertino.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter/material.dart';
 import 'package:http/http.dart' as http;
 import 'package:package_info_plus/package_info_plus.dart';
@@ -33,6 +34,7 @@ import 'source_code_page.dart';
 import 'tab_manager.dart';
 import 'webview_page.dart';
 import 'widgets/address_bar.dart';
+import 'widgets/address_suggestions.dart';
 import 'widgets/gesture_layer.dart';
 import 'widgets/progress_bar.dart';
 import 'widgets/site_security_sheet.dart';
@@ -62,6 +64,15 @@ class _BrowserScreenState extends State<BrowserScreen> with WidgetsBindingObserv
   SiteSecurityConfig? _siteConfig;
   StreamSubscription<Map<String, dynamic>>? _nativeSub;
 
+  // 地址栏增强
+  List<SuggestionItem> _suggestions = [];
+  bool _showSuggestions = false;
+  String? _clipboardUrl;
+  String _tempSearchEngine = 'baidu';
+  bool _addressBarVisible = true;
+  bool _autoHideEnabled = false;
+  bool _clipboardDetectEnabled = true;
+
   @override
   void initState() {
     super.initState();
@@ -78,13 +89,32 @@ class _BrowserScreenState extends State<BrowserScreen> with WidgetsBindingObserv
     });
     _loadIncognito();
     _listenNativeEvents();
+    _addressController.addListener(_onAddressChanged);
+    _loadAddressBarSettings();
   }
 
-  /// 前台/后台生命周期变化：回到前台时自动检查更新。
+  void _onAddressChanged() {
+    _updateSuggestions(_addressController.text);
+  }
+
+  Future<void> _loadAddressBarSettings() async {
+    final clipboard = await SettingsService.instance.isClipboardDetectEnabled();
+    final autoHide = await SettingsService.instance.isAutoHideAddressBarEnabled();
+    final engine = await SettingsService.instance.getSearchEngine();
+    if (!mounted) return;
+    setState(() {
+      _clipboardDetectEnabled = clipboard;
+      _autoHideEnabled = autoHide;
+      _tempSearchEngine = engine;
+    });
+  }
+
+  /// 前台/后台生命周期变化：回到前台时自动检查更新 + 剪贴板检测。
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
     if (state == AppLifecycleState.resumed) {
       _autoCheckUpdate();
+      _checkClipboardUrl();
     }
   }
 
@@ -207,6 +237,7 @@ class _BrowserScreenState extends State<BrowserScreen> with WidgetsBindingObserv
     DownloadService.instance.completedTask.removeListener(_onDownloadCompleted);
     WidgetsBinding.instance.removeObserver(this);
     _tabManager.dispose();
+    _addressController.removeListener(_onAddressChanged);
     _addressController.dispose();
     super.dispose();
   }
@@ -233,7 +264,96 @@ class _BrowserScreenState extends State<BrowserScreen> with WidgetsBindingObserv
 
   void _submit(String input) {
     FocusScope.of(context).unfocus();
-    _currentWebView()?.load(input);
+    setState(() => _showSuggestions = false);
+    final trimmed = input.trim();
+    if (trimmed.isEmpty) return;
+    // 判断是否为网址：包含 http/https 开头，或包含 . 且无空格
+    final isUrl = trimmed.toLowerCase().startsWith('http://') ||
+        trimmed.toLowerCase().startsWith('https://') ||
+        (trimmed.contains('.') && !trimmed.contains(' ') && !trimmed.startsWith(' '));
+    if (isUrl) {
+      final url = trimmed.toLowerCase().startsWith('http') ? trimmed : 'https://$trimmed';
+      _currentWebView()?.load(url);
+    } else {
+      // 搜索关键词
+      final searchUrl = SettingsService.searchUrlOf(_tempSearchEngine);
+      _currentWebView()?.load('$searchUrl${Uri.encodeComponent(trimmed)}');
+    }
+  }
+
+  // MARK: - 地址栏联想
+
+  Future<void> _updateSuggestions(String query) async {
+    if (query.trim().isEmpty) {
+      setState(() {
+        _suggestions = [];
+        _showSuggestions = false;
+      });
+      return;
+    }
+    final history = await DatabaseHelper.instance.getHistory(limit: 200);
+    final bookmarks = await DatabaseHelper.instance.getBookmarks();
+    if (!mounted) return;
+    setState(() {
+      _suggestions = filterSuggestions(query, history, bookmarks);
+      _showSuggestions = true;
+    });
+  }
+
+  void _onSelectSuggestion(String url) {
+    _addressController.text = url;
+    _submit(url);
+  }
+
+  Future<void> _deleteHistorySuggestion(String url) async {
+    await DatabaseHelper.instance.deleteHistoryByUrl(url);
+    _updateSuggestions(_addressController.text);
+  }
+
+  // MARK: - 剪贴板网址检测
+
+  Future<void> _checkClipboardUrl() async {
+    if (!_clipboardDetectEnabled) return;
+    try {
+      final data = await Clipboard.getData('text/plain');
+      final text = data?.text?.trim() ?? '';
+      if (text.isEmpty) return;
+      final isUrl = text.toLowerCase().startsWith('http://') ||
+          text.toLowerCase().startsWith('https://') ||
+          (text.contains('.') && !text.contains(' '));
+      if (isUrl && text != _tabManager.activeTab?.url) {
+        if (!mounted) return;
+        setState(() => _clipboardUrl = text);
+      }
+    } catch (_) {}
+  }
+
+  // MARK: - 复制链接
+
+  void _copyCurrentLink() {
+    final url = _tabManager.activeTab?.url ?? '';
+    if (url.isEmpty) return;
+    Clipboard.setData(ClipboardData(text: url));
+    _showMessage('链接已复制');
+  }
+
+  // MARK: - 搜索引擎切换
+
+  void _switchSearchEngine(String engine) {
+    setState(() => _tempSearchEngine = engine);
+    _showMessage('已切换为${SettingsService.searchEngines[engine] ?? engine}搜索');
+  }
+
+  // MARK: - 地址栏自动隐藏
+
+  void _onWebViewScroll(double direction) {
+    if (!_autoHideEnabled) return;
+    // direction > 0 向下滚动（隐藏），< 0 向上滚动（显示）
+    if (direction > 8 && _addressBarVisible) {
+      setState(() => _addressBarVisible = false);
+    } else if (direction < -8 && !_addressBarVisible) {
+      setState(() => _addressBarVisible = true);
+    }
   }
 
   void _openTabSwitcher() {
@@ -1165,6 +1285,39 @@ class _BrowserScreenState extends State<BrowserScreen> with WidgetsBindingObserv
             bottom: false,
             child: Column(
               children: [
+                // 剪贴板网址提示条
+                if (_clipboardUrl != null)
+                  Container(
+                    color: const Color(0xFFE3F2FD),
+                    padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+                    child: Row(
+                      children: [
+                        const Icon(Icons.content_paste, size: 14, color: Color(0xFF007AFF)),
+                        const SizedBox(width: 6),
+                        Expanded(
+                          child: Text(
+                            '发现剪贴板网址：$_clipboardUrl',
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                            style: const TextStyle(fontSize: 12, color: Color(0xFF1C1C1E)),
+                          ),
+                        ),
+                        TextButton(
+                          onPressed: () {
+                            final url = _clipboardUrl!;
+                            setState(() => _clipboardUrl = null);
+                            _addressController.text = url;
+                            _submit(url);
+                          },
+                          child: const Text('打开', style: TextStyle(fontSize: 13, color: Color(0xFF007AFF))),
+                        ),
+                        IconButton(
+                          icon: const Icon(Icons.close, size: 16, color: Color(0xFF8E8E93)),
+                          onPressed: () => setState(() => _clipboardUrl = null),
+                        ),
+                      ],
+                    ),
+                  ),
                 ListenableBuilder(
                   listenable: _tabManager,
                   builder: (context, _) {
@@ -1177,9 +1330,25 @@ class _BrowserScreenState extends State<BrowserScreen> with WidgetsBindingObserv
                       isLoading: _isLoading,
                       isTabLocked: activeTab?.isLocked ?? false,
                       onTapLock: _openSecuritySheet,
+                      currentUrl: activeTab?.url ?? '',
+                      onGoBack: () => _currentWebView()?.goBack(),
+                      onGoForward: () => _currentWebView()?.goForward(),
+                      canGoBack: _canGoBack,
+                      canGoForward: _canGoForward,
+                      searchEngine: _tempSearchEngine,
+                      onSwitchSearchEngine: _switchSearchEngine,
+                      onCopyLink: _copyCurrentLink,
+                      visible: _addressBarVisible,
                     );
                   },
                 ),
+                // 联想下拉
+                if (_showSuggestions)
+                  AddressSuggestions(
+                    suggestions: _suggestions,
+                    onSelect: _onSelectSuggestion,
+                    onDeleteHistory: _deleteHistorySuggestion,
+                  ),
                 ProgressBar(progress: _progress),
                 ListenableBuilder(
                   listenable: _tabManager,
@@ -1273,7 +1442,10 @@ class _BrowserScreenState extends State<BrowserScreen> with WidgetsBindingObserv
                         onPageStarted: (url) {
                           _tabManager.updateTab(tabId, url: url, isLoading: true);
                           if (tabId == _tabManager.activeTabId) {
-                            setState(() => _isLoading = true);
+                            setState(() {
+                              _isLoading = true;
+                              _addressBarVisible = true;
+                            });
                           }
                         },
                         onPageFinished: (url) {
@@ -1291,6 +1463,11 @@ class _BrowserScreenState extends State<BrowserScreen> with WidgetsBindingObserv
                         onLoginFormDetected: (url) => _onLoginFormDetected(tabId, url),
                         onLoginFormSubmitted: (url, username, password) =>
                             _onLoginFormSubmitted(url, username, password),
+                        onScrollDirection: (dir) {
+                          if (tabId == _tabManager.activeTabId) {
+                            _onWebViewScroll(dir);
+                          }
+                        },
                       );
                     }).toList(),
                   ),

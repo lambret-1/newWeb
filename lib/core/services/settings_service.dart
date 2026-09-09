@@ -18,6 +18,8 @@ class SettingsService {
   static const String kAutoUpdateCheck = 'auto_update_check';
   static const String kLastUpdateCheck = 'last_update_check';
   static const String kUpdateSkippedVersion = 'update_skipped_version';
+  static const String kClipboardDetect = 'clipboard_detect';
+  static const String kAutoHideAddressBar = 'auto_hide_address_bar';
 
   static const Map<String, String> searchEngines = {
     'baidu': '百度',
@@ -197,5 +199,29 @@ class SettingsService {
     } else {
       await prefs.setString(kUpdateSkippedVersion, version);
     }
+  }
+
+  // ---------- 地址栏 ----------
+
+  /// 剪贴板网址检测开关（默认开启）。
+  Future<bool> isClipboardDetectEnabled() async {
+    final prefs = await SharedPreferences.getInstance();
+    return prefs.getBool(kClipboardDetect) ?? true;
+  }
+
+  Future<void> setClipboardDetectEnabled(bool value) async {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setBool(kClipboardDetect, value);
+  }
+
+  /// 地址栏自动隐藏开关（默认关闭）。
+  Future<bool> isAutoHideAddressBarEnabled() async {
+    final prefs = await SharedPreferences.getInstance();
+    return prefs.getBool(kAutoHideAddressBar) ?? false;
+  }
+
+  Future<void> setAutoHideAddressBarEnabled(bool value) async {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setBool(kAutoHideAddressBar, value);
   }
 }
