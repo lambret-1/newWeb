@@ -33,7 +33,6 @@ import 'source_code_page.dart';
 import 'tab_manager.dart';
 import 'webview_page.dart';
 import 'widgets/address_bar.dart';
-import 'widgets/address_suggestions.dart';
 import 'widgets/gesture_layer.dart';
 import 'widgets/progress_bar.dart';
 import 'widgets/site_security_sheet.dart';
@@ -65,8 +64,6 @@ class _BrowserScreenState extends State<BrowserScreen> with WidgetsBindingObserv
   StreamSubscription<Map<String, dynamic>>? _nativeSub;
 
   // 地址栏增强
-  List<SuggestionItem> _suggestions = [];
-  bool _showSuggestions = false;
   String _tempSearchEngine = 'baidu';
   bool _addressBarVisible = true;
   bool _autoHideEnabled = false;
@@ -88,12 +85,7 @@ class _BrowserScreenState extends State<BrowserScreen> with WidgetsBindingObserv
     });
     _loadIncognito();
     _listenNativeEvents();
-    _addressController.addListener(_onAddressChanged);
     _loadAddressBarSettings();
-  }
-
-  void _onAddressChanged() {
-    _updateSuggestions(_addressController.text);
   }
 
   Future<void> _loadAddressBarSettings() async {
@@ -233,7 +225,6 @@ class _BrowserScreenState extends State<BrowserScreen> with WidgetsBindingObserv
     DownloadService.instance.completedTask.removeListener(_onDownloadCompleted);
     WidgetsBinding.instance.removeObserver(this);
     _tabManager.dispose();
-    _addressController.removeListener(_onAddressChanged);
     _addressController.dispose();
     _addressFocusNode.dispose();
     super.dispose();
@@ -261,7 +252,6 @@ class _BrowserScreenState extends State<BrowserScreen> with WidgetsBindingObserv
 
   void _submit(String input) {
     FocusScope.of(context).unfocus();
-    setState(() => _showSuggestions = false);
     final trimmed = input.trim();
     if (trimmed.isEmpty) return;
     // 判断是否为网址
@@ -297,29 +287,6 @@ class _BrowserScreenState extends State<BrowserScreen> with WidgetsBindingObserv
     return false;
   }
 
-  // MARK: - 地址栏联想
-
-  Future<void> _updateSuggestions(String query) async {
-    if (query.trim().isEmpty) {
-      setState(() {
-        _suggestions = [];
-        _showSuggestions = false;
-      });
-      return;
-    }
-    final bookmarks = await DatabaseHelper.instance.getBookmarks();
-    if (!mounted) return;
-    setState(() {
-      _suggestions = filterSuggestions(query, bookmarks);
-      _showSuggestions = true;
-    });
-  }
-
-  void _onSelectSuggestion(String url) {
-    _addressController.text = url;
-    _submit(url);
-  }
-
   // MARK: - 搜索引擎切换
 
   void _switchSearchEngine(String engine) {
@@ -352,9 +319,6 @@ class _BrowserScreenState extends State<BrowserScreen> with WidgetsBindingObserv
   /// 地址栏聚焦状态变化。
   void _onAddressFocusChanged(bool focused) {
     setState(() => _isAddressFocused = focused);
-    if (!focused) {
-      setState(() => _showSuggestions = false);
-    }
   }
 
   /// 页面顶部轻下拉时聚焦地址栏。
@@ -1390,18 +1354,13 @@ class _BrowserScreenState extends State<BrowserScreen> with WidgetsBindingObserv
               listenable: _tabManager,
               builder: (context, _) {
                 final activeId = _tabManager.activeTabId;
-                return Stack(
-                  children: [
-                    GestureLayer(
-                      onEdgeBack: () => _currentWebView()?.goBack(),
-                      onEdgeForward: () => _currentWebView()?.goForward(),
-                      isAtTop: () async => _currentWebView()?.isAtTop() ?? true,
-                      onRefresh: () async {
-                        await _currentWebView()?.reload();
-                      },
-                      onPullToFocus: _pullToFocusAddressBar,
-                      onTapPage: _unfocusAddress,
-                      child: IndexedStack(
+                return GestureLayer(
+                  onEdgeBack: () => _currentWebView()?.goBack(),
+                  onEdgeForward: () => _currentWebView()?.goForward(),
+                  isAtTop: () async => _currentWebView()?.isAtTop() ?? true,
+                  onPullToFocus: _pullToFocusAddressBar,
+                  onTapPage: _unfocusAddress,
+                  child: IndexedStack(
                     index: _tabManager.tabs.indexWhere((t) => t.id == activeId),
                     children: _tabManager.tabs.map((tab) {
                       final tabId = tab.id;
@@ -1454,19 +1413,6 @@ class _BrowserScreenState extends State<BrowserScreen> with WidgetsBindingObserv
                       );
                     }).toList(),
                   ),
-                    ),
-                    // 联想下拉浮层
-                    if (_showSuggestions)
-                      Positioned(
-                        top: 0,
-                        left: 0,
-                        right: 0,
-                        child: AddressSuggestions(
-                          suggestions: _suggestions,
-                          onSelect: _onSelectSuggestion,
-                        ),
-                      ),
-                  ],
                 );
               },
             ),
