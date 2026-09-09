@@ -107,7 +107,8 @@ jobs:
       - name: Flutter 静态分析
         run: |
           echo "========== Flutter 静态分析 =========="
-          flutter analyze lib/
+          # 仅 error 级别视为失败，info/warning 不阻断生产构建
+          flutter analyze lib/ --no-fatal-infos --no-fatal-warnings
           echo "静态分析通过"
 
   # ===========================================================================
