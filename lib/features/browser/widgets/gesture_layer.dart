@@ -13,6 +13,7 @@ class GestureLayer extends StatefulWidget {
     required this.onEdgeForward,
     required this.isAtTop,
     required this.onRefresh,
+    this.onPullToFocus,
   });
 
   final Widget child;
@@ -22,6 +23,9 @@ class GestureLayer extends StatefulWidget {
   /// 查询当前页面是否在顶部（供下拉刷新判定）。
   final Future<bool> Function() isAtTop;
   final Future<void> Function() onRefresh;
+
+  /// 页面顶部轻下拉时触发（用于聚焦地址栏），下拉距离小于刷新阈值时调用。
+  final VoidCallback? onPullToFocus;
 
   @override
   State<GestureLayer> createState() => _GestureLayerState();
@@ -111,6 +115,17 @@ class _GestureLayerState extends State<GestureLayer> {
       if (!mounted) return;
       setState(() {
         _refreshing = false;
+        _pullDistance = 0;
+      });
+    } else if (!_edgeStartAtLeft &&
+        !_edgeStartAtRight &&
+        _pullAtTop &&
+        delta.dy > 30 &&
+        delta.dy <= _pullThreshold &&
+        delta.dy.abs() > delta.dx.abs()) {
+      // 轻下拉（30-80pt）：聚焦地址栏
+      widget.onPullToFocus?.call();
+      setState(() {
         _pullDistance = 0;
       });
     } else {

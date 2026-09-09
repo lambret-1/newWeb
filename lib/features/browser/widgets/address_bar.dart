@@ -22,6 +22,8 @@ class AddressBar extends StatefulWidget {
     required this.searchEngine,
     required this.onSwitchSearchEngine,
     required this.onCopyLink,
+    required this.onFocusChanged,
+    this.focusNode,
     this.visible = true,
   });
 
@@ -40,6 +42,8 @@ class AddressBar extends StatefulWidget {
   final String searchEngine;
   final ValueChanged<String> onSwitchSearchEngine;
   final VoidCallback onCopyLink;
+  final ValueChanged<bool> onFocusChanged;
+  final FocusNode? focusNode;
   final bool visible;
 
   @override
@@ -47,24 +51,49 @@ class AddressBar extends StatefulWidget {
 }
 
 class _AddressBarState extends State<AddressBar> {
-  final FocusNode _focusNode = FocusNode();
+  late final FocusNode _focusNode;
   bool _isFocused = false;
+  bool _hasText = false;
+  bool _ownsFocusNode = false;
 
   @override
   void initState() {
     super.initState();
+    _focusNode = widget.focusNode ?? FocusNode();
+    _ownsFocusNode = widget.focusNode == null;
     _focusNode.addListener(_onFocusChange);
+    widget.controller.addListener(_onTextChanged);
+    _hasText = widget.controller.text.isNotEmpty;
   }
 
   @override
   void dispose() {
     _focusNode.removeListener(_onFocusChange);
-    _focusNode.dispose();
+    if (_ownsFocusNode) _focusNode.dispose();
+    widget.controller.removeListener(_onTextChanged);
     super.dispose();
   }
 
   void _onFocusChange() {
     setState(() => _isFocused = _focusNode.hasFocus);
+    widget.onFocusChanged(_focusNode.hasFocus);
+    // 聚焦时同步 controller 文本为当前 URL
+    if (_focusNode.hasFocus) {
+      final current = widget.currentUrl;
+      if (current.isNotEmpty && current != 'about:blank') {
+        widget.controller.text = current;
+      }
+      widget.controller.selection = TextSelection(
+        baseOffset: 0,
+        extentOffset: widget.controller.text.length,
+      );
+    }
+  }
+
+  void _onTextChanged() {
+    if (_hasText != widget.controller.text.isNotEmpty) {
+      setState(() => _hasText = widget.controller.text.isNotEmpty);
+    }
   }
 
   /// 域名高亮：解析 URL，主域名加粗，协议/路径灰色。
@@ -137,6 +166,7 @@ class _AddressBarState extends State<AddressBar> {
   }
 
   IconData get _lockIcon {
+    // 加载中不显示锁头图标，只显示进度圈
     if (widget.isLoading) return Icons.refresh;
     switch (widget.securityLevel) {
       case SecurityLevel.secure:
@@ -193,6 +223,7 @@ class _AddressBarState extends State<AddressBar> {
             }),
             _menuItem(Icons.select_all, '全选', () {
               Navigator.pop(ctx);
+              _focusNode.requestFocus();
               widget.controller.selection = TextSelection(
                 baseOffset: 0,
                 extentOffset: widget.controller.text.length,
@@ -268,8 +299,8 @@ class _AddressBarState extends State<AddressBar> {
   Widget build(BuildContext context) {
     if (!widget.visible) return const SizedBox.shrink();
     return GestureDetector(
-      // 左右滑动前进后退
-      onHorizontalDragEnd: (details) {
+      // 左右滑动前进后退（仅非输入态）
+      onHorizontalDragEnd: _isFocused ? null : (details) {
         if (details.primaryVelocity == null) return;
         if (details.primaryVelocity! > 300 && widget.canGoBack) {
           widget.onGoBack();
@@ -283,7 +314,7 @@ class _AddressBarState extends State<AddressBar> {
         child: Container(
           height: 36,
           decoration: BoxDecoration(
-            color: _isFocused ? Colors.white : const Color(0xFFFFFFFF),
+            color: Colors.white,
             borderRadius: BorderRadius.circular(10),
             border: _isFocused ? Border.all(color: const Color(0xFF007AFF), width: 1.5) : null,
             boxShadow: [
@@ -305,16 +336,13 @@ class _AddressBarState extends State<AddressBar> {
                   child: Stack(
                     clipBehavior: Clip.none,
                     children: [
-                      Icon(_lockIcon, size: 14, color: _lockColor),
                       if (widget.isLoading)
-                        const Positioned.fill(
-                          child: Center(
-                            child: SizedBox(
-                              width: 14, height: 14,
-                              child: CircularProgressIndicator(strokeWidth: 1.5, color: Color(0xFF007AFF)),
-                            ),
-                          ),
-                        ),
+                        const SizedBox(
+                          width: 14, height: 14,
+                          child: CircularProgressIndicator(strokeWidth: 1.5, color: Color(0xFF007AFF)),
+                        )
+                      else
+                        Icon(_lockIcon, size: 14, color: _lockColor),
                       if (widget.isTabLocked)
                         const Positioned(
                           right: -4, top: -4,
@@ -336,48 +364,37 @@ class _AddressBarState extends State<AddressBar> {
                 ),
               // 输入框 / 域名高亮
               Expanded(
-                child: GestureDetector(
-                  onLongPress: _showLongPressMenu,
-                  child: _isFocused
-                      ? TextField(
-                          controller: widget.controller,
-                          focusNode: _focusNode,
-                          keyboardType: TextInputType.url,
-                          textInputAction: TextInputAction.go,
-                          autocorrect: false,
-                          enableSuggestions: false,
-                          onSubmitted: widget.onSubmit,
-                          style: const TextStyle(fontSize: 14, color: Color(0xFF1C1C1E), height: 1.2),
-                          decoration: const InputDecoration(
-                            hintText: '搜索或输入网址',
-                            hintStyle: TextStyle(fontSize: 14, color: Color(0xFF8E8E93)),
-                            border: InputBorder.none,
-                            isDense: true,
-                            contentPadding: EdgeInsets.symmetric(vertical: 8),
-                          ),
-                        )
-                      : GestureDetector(
-                          onTap: () {
-                            _focusNode.requestFocus();
-                            widget.controller.selection = TextSelection(
-                              baseOffset: 0,
-                              extentOffset: widget.controller.text.length,
-                            );
-                          },
-                          onLongPress: _showLongPressMenu,
-                          child: Padding(
-                            padding: const EdgeInsets.symmetric(vertical: 8),
-                            child: _buildDomainHighlight(),
-                          ),
+                child: _isFocused
+                    ? TextField(
+                        controller: widget.controller,
+                        focusNode: _focusNode,
+                        keyboardType: TextInputType.url,
+                        textInputAction: TextInputAction.go,
+                        autocorrect: false,
+                        enableSuggestions: false,
+                        onSubmitted: widget.onSubmit,
+                        style: const TextStyle(fontSize: 14, color: Color(0xFF1C1C1E), height: 1.2),
+                        decoration: const InputDecoration(
+                          hintText: '搜索或输入网址',
+                          hintStyle: TextStyle(fontSize: 14, color: Color(0xFF8E8E93)),
+                          border: InputBorder.none,
+                          isDense: true,
+                          contentPadding: EdgeInsets.symmetric(vertical: 8),
                         ),
-                ),
+                      )
+                    : GestureDetector(
+                        onTap: () => _focusNode.requestFocus(),
+                        onLongPress: _showLongPressMenu,
+                        child: Padding(
+                          padding: const EdgeInsets.symmetric(vertical: 8),
+                          child: _buildDomainHighlight(),
+                        ),
+                      ),
               ),
               // 一键清空（输入态且有内容）
-              if (_isFocused && widget.controller.text.isNotEmpty)
+              if (_isFocused && _hasText)
                 GestureDetector(
-                  onTap: () {
-                    widget.controller.clear();
-                  },
+                  onTap: () => widget.controller.clear(),
                   behavior: HitTestBehavior.opaque,
                   child: const Padding(
                     padding: EdgeInsets.symmetric(horizontal: 8),

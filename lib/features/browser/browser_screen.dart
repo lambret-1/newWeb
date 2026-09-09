@@ -52,6 +52,7 @@ class BrowserScreen extends StatefulWidget {
 
 class _BrowserScreenState extends State<BrowserScreen> with WidgetsBindingObserver {
   final TextEditingController _addressController = TextEditingController();
+  final FocusNode _addressFocusNode = FocusNode();
   final TabManager _tabManager = TabManager();
   final Map<String, GlobalKey<WebViewPageState>> _webViewKeys = {};
 
@@ -72,6 +73,8 @@ class _BrowserScreenState extends State<BrowserScreen> with WidgetsBindingObserv
   bool _addressBarVisible = true;
   bool _autoHideEnabled = false;
   bool _clipboardDetectEnabled = true;
+  bool _isAddressFocused = false;
+  DateTime? _lastClipboardCheck;
 
   @override
   void initState() {
@@ -239,6 +242,7 @@ class _BrowserScreenState extends State<BrowserScreen> with WidgetsBindingObserv
     _tabManager.dispose();
     _addressController.removeListener(_onAddressChanged);
     _addressController.dispose();
+    _addressFocusNode.dispose();
     super.dispose();
   }
 
@@ -267,10 +271,8 @@ class _BrowserScreenState extends State<BrowserScreen> with WidgetsBindingObserv
     setState(() => _showSuggestions = false);
     final trimmed = input.trim();
     if (trimmed.isEmpty) return;
-    // 判断是否为网址：包含 http/https 开头，或包含 . 且无空格
-    final isUrl = trimmed.toLowerCase().startsWith('http://') ||
-        trimmed.toLowerCase().startsWith('https://') ||
-        (trimmed.contains('.') && !trimmed.contains(' ') && !trimmed.startsWith(' '));
+    // 判断是否为网址
+    final isUrl = _isLikelyUrl(trimmed);
     if (isUrl) {
       final url = trimmed.toLowerCase().startsWith('http') ? trimmed : 'https://$trimmed';
       _currentWebView()?.load(url);
@@ -279,6 +281,27 @@ class _BrowserScreenState extends State<BrowserScreen> with WidgetsBindingObserv
       final searchUrl = SettingsService.searchUrlOf(_tempSearchEngine);
       _currentWebView()?.load('$searchUrl${Uri.encodeComponent(trimmed)}');
     }
+  }
+
+  /// 判断输入是否为网址（比简单 contains('.') 更严格）。
+  bool _isLikelyUrl(String text) {
+    final lower = text.toLowerCase();
+    // 明确的协议开头
+    if (lower.startsWith('http://') || lower.startsWith('https://')) return true;
+    // localhost / IP 地址
+    if (lower.startsWith('localhost') || RegExp(r'^\d{1,3}(\.\d{1,3}){3}').hasMatch(lower)) return true;
+    // 包含点且无空格，且点后有 2-6 个字母（常见域名后缀）
+    if (text.contains('.') && !text.contains(' ')) {
+      final parts = text.split('.');
+      if (parts.length >= 2) {
+        final last = parts.last;
+        // 常见顶级域名或 2-6 位字母
+        if (RegExp(r'^[a-z]{2,6}$').hasMatch(last) || last.contains(':')) {
+          return true;
+        }
+      }
+    }
+    return false;
   }
 
   // MARK: - 地址栏联想
@@ -314,13 +337,18 @@ class _BrowserScreenState extends State<BrowserScreen> with WidgetsBindingObserv
 
   Future<void> _checkClipboardUrl() async {
     if (!_clipboardDetectEnabled) return;
+    // 冷却时间：30秒内不重复检测，避免频繁触发系统剪贴板提示
+    final now = DateTime.now();
+    if (_lastClipboardCheck != null &&
+        now.difference(_lastClipboardCheck!).inSeconds < 30) {
+      return;
+    }
+    _lastClipboardCheck = now;
     try {
       final data = await Clipboard.getData('text/plain');
       final text = data?.text?.trim() ?? '';
       if (text.isEmpty) return;
-      final isUrl = text.toLowerCase().startsWith('http://') ||
-          text.toLowerCase().startsWith('https://') ||
-          (text.contains('.') && !text.contains(' '));
+      final isUrl = _isLikelyUrl(text);
       if (isUrl && text != _tabManager.activeTab?.url) {
         if (!mounted) return;
         setState(() => _clipboardUrl = text);
@@ -346,14 +374,42 @@ class _BrowserScreenState extends State<BrowserScreen> with WidgetsBindingObserv
 
   // MARK: - 地址栏自动隐藏
 
+  DateTime? _lastScrollHideTime;
+
   void _onWebViewScroll(double direction) {
     if (!_autoHideEnabled) return;
+    if (_isAddressFocused) return; // 地址栏聚焦时不隐藏
+    // 节流：200ms 内只处理一次，避免频繁 setState
+    final now = DateTime.now();
+    if (_lastScrollHideTime != null &&
+        now.difference(_lastScrollHideTime!).inMilliseconds < 200) {
+      return;
+    }
+    _lastScrollHideTime = now;
     // direction > 0 向下滚动（隐藏），< 0 向上滚动（显示）
     if (direction > 8 && _addressBarVisible) {
       setState(() => _addressBarVisible = false);
     } else if (direction < -8 && !_addressBarVisible) {
       setState(() => _addressBarVisible = true);
     }
+  }
+
+  /// 地址栏聚焦状态变化。
+  void _onAddressFocusChanged(bool focused) {
+    setState(() => _isAddressFocused = focused);
+    if (!focused) {
+      setState(() => _showSuggestions = false);
+    }
+  }
+
+  /// 页面顶部轻下拉时聚焦地址栏。
+  void _pullToFocusAddressBar() {
+    if (!_addressBarVisible) {
+      setState(() => _addressBarVisible = true);
+    }
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      _addressFocusNode.requestFocus();
+    });
   }
 
   void _openTabSwitcher() {
@@ -1338,17 +1394,12 @@ class _BrowserScreenState extends State<BrowserScreen> with WidgetsBindingObserv
                       searchEngine: _tempSearchEngine,
                       onSwitchSearchEngine: _switchSearchEngine,
                       onCopyLink: _copyCurrentLink,
+                      onFocusChanged: _onAddressFocusChanged,
+                      focusNode: _addressFocusNode,
                       visible: _addressBarVisible,
                     );
                   },
                 ),
-                // 联想下拉
-                if (_showSuggestions)
-                  AddressSuggestions(
-                    suggestions: _suggestions,
-                    onSelect: _onSelectSuggestion,
-                    onDeleteHistory: _deleteHistorySuggestion,
-                  ),
                 ProgressBar(progress: _progress),
                 ListenableBuilder(
                   listenable: _tabManager,
@@ -1411,14 +1462,17 @@ class _BrowserScreenState extends State<BrowserScreen> with WidgetsBindingObserv
               listenable: _tabManager,
               builder: (context, _) {
                 final activeId = _tabManager.activeTabId;
-                return GestureLayer(
-                  onEdgeBack: () => _currentWebView()?.goBack(),
-                  onEdgeForward: () => _currentWebView()?.goForward(),
-                  isAtTop: () async => _currentWebView()?.isAtTop() ?? true,
-                  onRefresh: () async {
-                    await _currentWebView()?.reload();
-                  },
-                  child: IndexedStack(
+                return Stack(
+                  children: [
+                    GestureLayer(
+                      onEdgeBack: () => _currentWebView()?.goBack(),
+                      onEdgeForward: () => _currentWebView()?.goForward(),
+                      isAtTop: () async => _currentWebView()?.isAtTop() ?? true,
+                      onRefresh: () async {
+                        await _currentWebView()?.reload();
+                      },
+                      onPullToFocus: _pullToFocusAddressBar,
+                      child: IndexedStack(
                     index: _tabManager.tabs.indexWhere((t) => t.id == activeId),
                     children: _tabManager.tabs.map((tab) {
                       final tabId = tab.id;
@@ -1471,6 +1525,20 @@ class _BrowserScreenState extends State<BrowserScreen> with WidgetsBindingObserv
                       );
                     }).toList(),
                   ),
+                    ),
+                    // 联想下拉浮层
+                    if (_showSuggestions)
+                      Positioned(
+                        top: 0,
+                        left: 0,
+                        right: 0,
+                        child: AddressSuggestions(
+                          suggestions: _suggestions,
+                          onSelect: _onSelectSuggestion,
+                          onDeleteHistory: _deleteHistorySuggestion,
+                        ),
+                      ),
+                  ],
                 );
               },
             ),
