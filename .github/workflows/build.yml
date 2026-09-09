@@ -269,6 +269,11 @@ jobs:
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
 
+      - name: 同步最新代码（含版本递增提交）
+        run: |
+          git pull origin main --rebase
+          echo "当前版本: $(grep '^version:' pubspec.yaml | head -1)"
+
       - name: 下载 IPA 制品
         uses: actions/download-artifact@v4
         with:
