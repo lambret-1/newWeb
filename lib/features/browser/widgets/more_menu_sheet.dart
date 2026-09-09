@@ -2,6 +2,7 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:sensors_plus/sensors_plus.dart';
 import '../services/menu_order_service.dart';
+import '../../../core/services/debug_logger.dart';
 
 /// 菜单项定义
 class MenuItem {
@@ -79,6 +80,7 @@ class _MoreMenuSheetState extends State<MoreMenuSheet> {
       _selectedIndex = 0;
     });
     _startListening();
+    DebugLogger.instance.log('进入排序模式，启动加速度传感器监听');
   }
 
   /// 退出排序模式并保存
@@ -87,31 +89,45 @@ class _MoreMenuSheetState extends State<MoreMenuSheet> {
     _accelSub = null;
     final keys = _sortedItems.map((e) => e.key).toList();
     await MenuOrderService.saveOrder(keys);
-    setState(() => _isSorting = false);
+    if (mounted) {
+      setState(() => _isSorting = false);
+    }
+    DebugLogger.instance.log('退出排序模式，保存顺序: $keys');
   }
 
   /// 恢复默认顺序
   Future<void> _resetOrder() async {
     await MenuOrderService.resetOrder();
     await _loadOrder();
+    DebugLogger.instance.log('恢复默认顺序');
   }
 
   /// 监听加速度传感器
   void _startListening() {
-    _accelSub = accelerometerEventStream().listen((event) {
-      final now = DateTime.now();
-      if (now.difference(_lastMove).inMilliseconds < 300) return; // 防抖
+    _accelSub = accelerometerEventStream().listen(
+      (event) {
+        final now = DateTime.now();
+        if (now.difference(_lastMove).inMilliseconds < 250) return; // 防抖
 
-      // x轴：左倾为负，右倾为正
-      // 阈值：超过 3.0 触发移动
-      if (event.x < -3.0) {
-        _moveSelected(-1);
-        _lastMove = now;
-      } else if (event.x > 3.0) {
-        _moveSelected(1);
-        _lastMove = now;
-      }
-    });
+        // x轴：设备左倾时x为负，右倾时x为正
+        // 阈值：超过 1.5 触发移动（约倾斜9度）
+        if (event.x < -1.5) {
+          _moveSelected(-1);
+          _lastMove = now;
+          DebugLogger.instance.log('左倾 x=${event.x.toStringAsFixed(2)}，上移');
+        } else if (event.x > 1.5) {
+          _moveSelected(1);
+          _lastMove = now;
+          DebugLogger.instance.log('右倾 x=${event.x.toStringAsFixed(2)}，下移');
+        }
+      },
+      onError: (e) {
+        DebugLogger.instance.log('加速度传感器错误: $e');
+      },
+      onDone: () {
+        DebugLogger.instance.log('加速度传感器监听结束');
+      },
+    );
   }
 
   /// 移动选中项
@@ -121,11 +137,19 @@ class _MoreMenuSheetState extends State<MoreMenuSheet> {
     if (newIndex < 0 || newIndex >= items.length) return;
 
     setState(() {
-      // 交换 _order 中的位置
-      final keys = items.map((e) => e.key).toList();
-      final temp = keys[_selectedIndex];
-      keys[_selectedIndex] = keys[newIndex];
-      keys[newIndex] = temp;
+      // 直接交换 _order 中的位置
+      final keys = List<String>.from(_order);
+      // 确保 _order 包含所有项
+      for (final item in items) {
+        if (!keys.contains(item.key)) keys.add(item.key);
+      }
+      final idx1 = keys.indexOf(items[_selectedIndex].key);
+      final idx2 = keys.indexOf(items[newIndex].key);
+      if (idx1 >= 0 && idx2 >= 0) {
+        final temp = keys[idx1];
+        keys[idx1] = keys[idx2];
+        keys[idx2] = temp;
+      }
       _order = keys;
       _selectedIndex = newIndex;
     });
