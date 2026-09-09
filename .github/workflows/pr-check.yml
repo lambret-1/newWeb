@@ -1,0 +1,130 @@
+# =============================================================================
+# 工作流名称：PR 代码质量门禁
+# 触发条件：所有 Pull Request 及非 main 分支推送
+# 流水线职责：Flutter 静态检查 + iOS 编译校验 + 警告计数门禁
+# 严格禁止：版本递增、README 修改、IPA 导出、Release 创建、仓库提交变更
+# =============================================================================
+name: PR 代码质量门禁
+
+on:
+  pull_request:
+    branches: [ main ]
+  push:
+    branches-ignore: [ main ]
+
+env:
+  FLUTTER_VERSION: '3.47.2'
+  WARNING_THRESHOLD: 20
+
+jobs:
+  # ===========================================================================
+  # Job 1：Flutter 静态检查与警告门禁
+  # ===========================================================================
+  flutter-lint:
+    name: Flutter 静态检查
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: 检出代码
+        uses: actions/checkout@v5
+
+      - name: 安装 Flutter 环境
+        uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          flutter-version: ${{ env.FLUTTER_VERSION }}
+          cache: true
+
+      - name: 安装依赖
+        run: flutter pub get
+
+      - name: Flutter 静态分析（警告计数门禁）
+        id: analyze
+        run: |
+          echo "========== Flutter 静态分析 =========="
+          # 捕获分析输出，统计警告数量
+          set +e
+          ANALYZE_OUTPUT=$(flutter analyze lib/ 2>&1)
+          ANALYZE_EXIT=$?
+          set -e
+
+          echo "$ANALYZE_OUTPUT"
+
+          # 统计 warning 数量（info 不计入）
+          WARNING_COUNT=$(echo "$ANALYZE_OUTPUT" | grep -c "warning •" || true)
+          ERROR_COUNT=$(echo "$ANALYZE_OUTPUT" | grep -c "error •" || true)
+
+          echo "警告数量: $WARNING_COUNT"
+          echo "错误数量: $ERROR_COUNT"
+          echo "warning_count=$WARNING_COUNT" >> $GITHUB_OUTPUT
+          echo "error_count=$ERROR_COUNT" >> $GITHUB_OUTPUT
+
+          # 存在 error 直接失败
+          if [ "$ERROR_COUNT" -gt 0 ]; then
+            echo "::error::存在 $ERROR_COUNT 个错误，必须修复后才能合并"
+            exit 1
+          fi
+
+          # 警告超过阈值直接失败
+          if [ "$WARNING_COUNT" -gt "$WARNING_THRESHOLD" ]; then
+            echo "::error::警告数量 $WARNING_COUNT 超过阈值 $WARNING_THRESHOLD，请修复后再合并"
+            exit 1
+          fi
+
+          # flutter analyze 本身返回非零（存在 warning 时）也视为通过
+          echo "静态检查通过（警告 $WARNING_COUNT，阈值 $WARNING_THRESHOLD）"
+
+  # ===========================================================================
+  # Job 2：iOS 编译校验（仅验证可编译，不导出 IPA）
+  # ===========================================================================
+  ios-build-check:
+    name: iOS 编译校验
+    runs-on: macos-latest
+    timeout-minutes: 30
+    steps:
+      - name: 检出代码
+        uses: actions/checkout@v5
+
+      - name: 安装 Flutter 环境
+        uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          flutter-version: ${{ env.FLUTTER_VERSION }}
+          cache: true
+
+      - name: 缓存 CocoaPods 依赖
+        uses: actions/cache@v4
+        with:
+          path: ios/Pods
+          key: ${{ runner.os }}-pods-${{ hashFiles('ios/Podfile.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-pods-
+
+      - name: 安装依赖
+        run: |
+          flutter pub get
+          cd ios && pod install --repo-update || pod install
+          cd ..
+
+      - name: iOS 编译校验（无签名，不导出 IPA）
+        run: |
+          echo "========== iOS 编译校验 =========="
+          flutter build ios --release --no-codesign --config-only
+          cd ios
+          xcodebuild -workspace Runner.xcworkspace \
+            -scheme Runner \
+            -configuration Release \
+            -destination 'generic/platform=iOS' \
+            -derivedDataPath ../build/ios/DerivedData \
+            CODE_SIGNING_ALLOWED=NO \
+            CODE_SIGNING_REQUIRED=NO \
+            CODE_SIGN_IDENTITY="" \
+            build
+          cd ..
+          echo "iOS 编译校验通过"
+
+      - name: 编译警告统计
+        run: |
+          echo "========== 编译警告统计 =========="
+          # 这里可以添加 xcodebuild 警告统计逻辑
+          echo "编译完成，无致命错误"

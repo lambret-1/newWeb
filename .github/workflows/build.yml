@@ -1,45 +1,99 @@
-name: 构建 iOS 安装包
+# =============================================================================
+# 工作流名称：未来浏览器 iOS 生产构建流水线
+# 触发条件：仅 main 分支推送触发完整生产流水线
+# 流水线职责：版本自动递增 → 静态检查 → 无签名 IPA 构建 → 制品哈希校验 → Draft Release
+# 核心原则：零证书、零签名、产物隔离、Draft 人工审核、版本可追溯
+# =============================================================================
+name: 未来浏览器生产构建
 
 on:
   push:
-    branches: [ main, master ]
-    tags: [ 'v*' ]
+    branches: [ main ]
   workflow_dispatch:
 
+# 全局环境变量（集中管理，消除硬编码）
 env:
   APP_NAME: NewWeb
+  APP_DISPLAY_NAME: 未来浏览器
   SCHEME: Runner
   FLUTTER_VERSION: '3.47.2'
   BUNDLE_ID: com.newweb.newweb
+  IOS_DEPLOYMENT_TARGET: '15.0'
+  ARTIFACT_RETENTION_DAYS: 90
+  IPA_FILE: NewWeb.ipa
+
+# 并发控制：同一分支只允许一个构建运行，避免版本冲突
+concurrency:
+  group: production-build-${{ github.ref }}
+  cancel-in-progress: false
 
 jobs:
-  build:
-    name: 构建安装包
+  # ===========================================================================
+  # Job 1：版本递增与静态检查（串行前置，失败即终止）
+  # ===========================================================================
+  version-and-lint:
+    name: 版本递增与静态检查
     runs-on: macos-latest
-    timeout-minutes: 45
+    timeout-minutes: 15
     permissions:
       contents: write
-
+    outputs:
+      new_version: ${{ steps.bump.outputs.NEW_VERSION }}
+      old_version: ${{ steps.bump.outputs.OLD_VERSION }}
+      commit_hash: ${{ steps.commit.outputs.commit_hash }}
     steps:
       - name: 检出代码
         uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
+          token: ${{ secrets.GITHUB_TOKEN }}
 
-      # ------------------------------------------------------------
-      # 第一步：检测是否配置了签名证书
-      # ------------------------------------------------------------
-      - name: 检测签名证书
-        id: detect
-        env:
-          IOS_CERTIFICATE: ${{ secrets.IOS_CERTIFICATE }}
+      - name: 配置 Git 提交身份
         run: |
-          if [ -n "$IOS_CERTIFICATE" ]; then
-            echo "has_cert=true" >> $GITHUB_OUTPUT
-            echo "检测到签名证书，将使用签名模式构建"
-          else
-            echo "has_cert=false" >> $GITHUB_OUTPUT
-            echo "未检测到签名证书，将使用无签名模式构建"
-          fi
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
 
+      # ---------- 版本进位单元测试（强制门禁） ----------
+      - name: 版本进位单元测试
+        run: |
+          echo "========== 运行版本进位单元测试 =========="
+          bash scripts/version_bump_test.sh
+          echo "单元测试全部通过"
+
+      # ---------- 版本自动递增 ----------
+      - name: 版本自动递增
+        id: bump
+        run: |
+          echo "========== 版本自动递增 =========="
+          # 执行版本递增，捕获输出（日志输出到终端，KEY=VALUE 写入 GITHUB_OUTPUT）
+          bash scripts/version_bump.sh 2>&1 | while IFS= read -r line; do
+            echo "$line"
+            if [[ "$line" =~ ^(NEW_VERSION|OLD_VERSION|NEW_BUILD)= ]]; then
+              echo "$line" >> $GITHUB_OUTPUT
+            fi
+          done
+          # 从 pubspec.yaml 回读验证
+          NEW_VER=$(grep '^version:' pubspec.yaml | head -1 | sed 's/version: *//' | sed 's/+.*//')
+          echo "版本递增完成，当前版本：$NEW_VER"
+
+      # ---------- 提交版本变更 ----------
+      - name: 提交版本变更
+        id: commit
+        run: |
+          git add pubspec.yaml
+          if git diff --cached --quiet; then
+            echo "无版本变更"
+          else
+            VERSION=$(grep '^version:' pubspec.yaml | head -1 | sed 's/version: *//' | sed 's/+.*//')
+            git commit -m "ci: 自动递增版本至 v${VERSION}"
+            echo "版本变更已提交"
+          fi
+          git push origin main
+          COMMIT_HASH=$(git rev-parse --short HEAD)
+          echo "commit_hash=$COMMIT_HASH" >> $GITHUB_OUTPUT
+          echo "最新 Commit: $COMMIT_HASH"
+
+      # ---------- Flutter 静态检查 ----------
       - name: 安装 Flutter 环境
         uses: subosito/flutter-action@v2
         with:
@@ -47,58 +101,70 @@ jobs:
           flutter-version: ${{ env.FLUTTER_VERSION }}
           cache: true
 
-      - name: 查看 Flutter 版本
-        run: flutter --version
+      - name: 安装依赖
+        run: flutter pub get
+
+      - name: Flutter 静态分析
+        run: |
+          echo "========== Flutter 静态分析 =========="
+          flutter analyze lib/
+          echo "静态分析通过"
+
+  # ===========================================================================
+  # Job 2：iOS 构建（依赖版本递增完成）
+  # ===========================================================================
+  build-ios:
+    name: iOS 无签名构建
+    needs: version-and-lint
+    runs-on: macos-latest
+    timeout-minutes: 45
+    permissions:
+      contents: write
+    outputs:
+      sha256: ${{ steps.metadata.outputs.SHA256 }}
+      build_duration: ${{ steps.timing.outputs.duration }}
+    steps:
+      - name: 检出代码（含版本递增后的最新提交）
+        uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
+          ref: main
+
+      - name: 记录构建开始时间
+        id: timing
+        run: |
+          echo "start_time=$(date +%s)" >> $GITHUB_OUTPUT
+          echo "构建开始: $(date '+%Y-%m-%d %H:%M:%S')"
+
+      # ---------- 环境准备 ----------
+      - name: 安装 Flutter 环境
+        uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          flutter-version: ${{ env.FLUTTER_VERSION }}
+          cache: true
+
+      - name: 缓存 CocoaPods 依赖
+        uses: actions/cache@v4
+        with:
+          path: ios/Pods
+          key: ${{ runner.os }}-pods-${{ hashFiles('ios/Podfile.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-pods-
 
       - name: 安装依赖
         run: |
           flutter pub get
           cd ios && pod install --repo-update || pod install
+          cd ..
 
-      # ============================================================
-      # 签名模式：安装证书与描述文件
-      # ============================================================
-      - name: 安装 Apple 签名证书
-        if: steps.detect.outputs.has_cert == 'true'
-        env:
-          IOS_CERTIFICATE: ${{ secrets.IOS_CERTIFICATE }}
-          IOS_CERTIFICATE_PWD: ${{ secrets.IOS_CERTIFICATE_PWD }}
-          KEYCHAIN_PASSWORD: ${{ secrets.KEYCHAIN_PASSWORD }}
+      # ---------- 编译（全程无签名） ----------
+      - name: 编译应用（无签名）
         run: |
-          security create-keychain -p "$KEYCHAIN_PASSWORD" build.keychain
-          security default-keychain -s build.keychain
-          security unlock-keychain -p "$KEYCHAIN_PASSWORD" build.keychain
-          security set-keychain-settings -t 3600 -l build.keychain
-          echo "$IOS_CERTIFICATE" | base64 -d > certificate.p12
-          security import certificate.p12 -k build.keychain -P "$IOS_CERTIFICATE_PWD" -T /usr/bin/codesign
-          security set-key-partition-list -S apple-tool:,apple:,codesign: -s -k "$KEYCHAIN_PASSWORD" build.keychain
-          rm -f certificate.p12
-
-      - name: 安装描述文件
-        if: steps.detect.outputs.has_cert == 'true'
-        env:
-          IOS_PROVISION_PROFILE: ${{ secrets.IOS_PROVISION_PROFILE }}
-        run: |
-          mkdir -p ~/Library/MobileDevice/Provisioning\ Profiles
-          echo "$IOS_PROVISION_PROFILE" | base64 -d > profile.mobileprovision
-          security cms -D -i profile.mobileprovision -o profile.plist
-          UUID=$(/usr/libexec/PlistBuddy -c "Print :UUID" profile.plist)
-          cp profile.mobileprovision ~/Library/MobileDevice/Provisioning\ Profiles/$UUID.mobileprovision
-          # 提取 entitlements 供 codesign 使用
-          /usr/libexec/PlistBuddy -x -c "Print :Entitlements" profile.plist > entitlements.plist
-          TEAM_ID=$(/usr/libexec/PlistBuddy -c "Print :TeamIdentifier:0" profile.plist)
-          echo "描述文件 UUID: $UUID"
-          echo "团队 ID: $TEAM_ID"
-          rm -f profile.mobileprovision profile.plist
-
-      # ============================================================
-      # 编译（两种模式共用：先无签名编译）
-      # ============================================================
-      - name: 编译应用
-        run: |
-          # 先生成 Xcode 项目
+          echo "========== 编译应用（无签名模式） =========="
+          # 生成 Xcode 项目配置
           flutter build ios --release --no-codesign --config-only
-          # 用 xcodebuild 直接构建，强制无签名，指定输出目录
+          # 用 xcodebuild 直接构建，强制无签名
           cd ios
           xcodebuild -workspace Runner.xcworkspace \
             -scheme Runner \
@@ -110,94 +176,194 @@ jobs:
             CODE_SIGN_IDENTITY="" \
             build
           cd ..
-          # 复制构建产物到标准目录
+          # 验证构建产物
           APP_PATH="build/ios/DerivedData/Build/Products/Release-iphoneos/Runner.app"
           if [ ! -d "$APP_PATH" ]; then
-            echo "::error::未找到 Runner.app"
+            echo "::error::未找到 Runner.app，构建失败"
             find build/ios -name "Runner.app" -type d 2>/dev/null || true
             exit 1
           fi
           mkdir -p build/ios/iphoneos
           cp -R "$APP_PATH" build/ios/iphoneos/
-          echo "构建成功"
+          echo "编译成功"
 
-      - name: 正式签名（签名模式）
-        if: steps.detect.outputs.has_cert == 'true'
+      # ---------- 临时签名（ad-hoc，供全能签重签名使用） ----------
+      - name: 临时签名（ad-hoc）
         run: |
           APP_PATH="build/ios/iphoneos/Runner.app"
-          if [ ! -d "$APP_PATH" ]; then
-            echo "::error::未找到应用 $APP_PATH"
-            exit 1
-          fi
-          chmod +x "$APP_PATH/Runner"
-          cp entitlements.plist "$APP_PATH/entitlements.plist"
-          cp ~/Library/MobileDevice/Provisioning\ Profiles/*.mobileprovision "$APP_PATH/embedded.mobileprovision"
-          IDENTITY=$(security find-identity -v -p codesigning build.keychain | grep -o 'iPhone [^"]*' | head -1)
-          if [ -z "$IDENTITY" ]; then
-            echo "::error::钥匙串中未找到 iPhone 签名身份"
-            exit 1
-          fi
-          echo "使用签名身份: $IDENTITY"
-          codesign --force --sign "$IDENTITY" --entitlements "$APP_PATH/entitlements.plist" "$APP_PATH"
-          codesign --verify --deep --strict "$APP_PATH" || true
-          rm -f "$APP_PATH/entitlements.plist"
-
-      - name: 临时签名（无签名模式）
-        if: steps.detect.outputs.has_cert == 'false'
-        run: |
-          APP_PATH="build/ios/iphoneos/Runner.app"
-          if [ ! -d "$APP_PATH" ]; then
-            echo "::error::未找到应用 $APP_PATH"
-            exit 1
-          fi
           chmod +x "$APP_PATH/Runner"
           codesign --force --sign - --generate-entitlement-der "$APP_PATH" 2>&1 || true
-          echo "=== _CodeSignature ==="
-          ls -la "$APP_PATH/_CodeSignature/" 2>/dev/null || echo "无 _CodeSignature"
+          echo "临时签名完成"
 
+      # ---------- 打包 IPA ----------
       - name: 打包 IPA
         run: |
           APP_PATH="build/ios/iphoneos/Runner.app"
-          if [ ! -d "$APP_PATH" ]; then
-            echo "::error::未找到应用 $APP_PATH"
-            ls -la build/ios/iphoneos/ || true
-            exit 1
-          fi
           mkdir -p Payload
           cp -R "$APP_PATH" Payload/
-          zip -qr "${APP_NAME}.ipa" Payload
+          zip -qr "${IPA_FILE}" Payload
           rm -rf Payload
-          ls -lh "${APP_NAME}.ipa"
+          ls -lh "${IPA_FILE}"
+          echo "IPA 打包完成"
 
-      - name: 上传安装包
+      # ---------- 计算构建耗时 ----------
+      - name: 计算构建耗时
+        run: |
+          END_TIME=$(date +%s)
+          START_TIME=${{ steps.timing.outputs.start_time }}
+          DURATION=$((END_TIME - START_TIME))
+          echo "duration=$DURATION" >> $GITHUB_OUTPUT
+          echo "构建耗时: ${DURATION} 秒"
+
+      # ---------- 生成制品元数据 ----------
+      - name: 生成制品元数据与 SHA256
+        id: metadata
+        run: |
+          VERSION=$(grep '^version:' pubspec.yaml | head -1 | sed 's/version: *//' | sed 's/+.*//')
+          COMMIT_HASH=$(git rev-parse --short HEAD)
+          BUILD_TIME=$(date '+%Y-%m-%d %H:%M:%S')
+          DURATION=${{ steps.timing.outputs.duration }}
+          # 执行一次，同时捕获输出
+          bash scripts/generate_metadata.sh "$VERSION" "$COMMIT_HASH" "$BUILD_TIME" "${IPA_FILE}" "$DURATION" 2>&1 | while IFS= read -r line; do
+            echo "$line"
+            if [[ "$line" =~ ^(SHA256|METADATA_FILE)= ]]; then
+              echo "$line" >> $GITHUB_OUTPUT
+            fi
+          done
+
+      # ---------- 上传 Artifacts ----------
+      - name: 上传 IPA 制品
         uses: actions/upload-artifact@v4
         with:
-          name: ${{ env.APP_NAME }}-${{ steps.detect.outputs.has_cert == 'true' && 'signed' || 'unsigned' }}-ipa
-          path: ${{ env.APP_NAME }}.ipa
-          retention-days: 90
+          name: ${{ env.APP_NAME }}-unsigned-ipa
+          path: ${{ env.IPA_FILE }}
+          retention-days: ${{ env.ARTIFACT_RETENTION_DAYS }}
 
-      # ------------------------------------------------------------
-      # 自动创建 GitHub Release 并上传 IPA（供 App 内检查更新下载）
-      # ------------------------------------------------------------
-      - name: 读取版本号
-        id: version
+      - name: 上传制品元数据
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ env.APP_NAME }}-metadata
+          path: NewWeb-metadata.json
+          retention-days: ${{ env.ARTIFACT_RETENTION_DAYS }}
+
+  # ===========================================================================
+  # Job 3：Draft Release 与 README 更新（依赖构建完成）
+  # ===========================================================================
+  release:
+    name: 创建 Draft Release 与更新日志
+    needs: [version-and-lint, build-ios]
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: write
+    steps:
+      - name: 检出代码
+        uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: 配置 Git 提交身份
         run: |
-          VER=$(grep '^version:' pubspec.yaml | head -1 | sed 's/version: *//' | sed 's/+.*//')
-          echo "version=$VER" >> $GITHUB_OUTPUT
-          echo "版本号: v$VER"
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
 
-      - name: 创建 Release 并上传 IPA
+      - name: 下载 IPA 制品
+        uses: actions/download-artifact@v4
+        with:
+          name: ${{ env.APP_NAME }}-unsigned-ipa
+
+      - name: 下载制品元数据
+        uses: actions/download-artifact@v4
+        with:
+          name: ${{ env.APP_NAME }}-metadata
+
+      - name: 读取版本与构建信息
+        id: info
+        run: |
+          VERSION=$(grep '^version:' pubspec.yaml | head -1 | sed 's/version: *//' | sed 's/+.*//')
+          COMMIT_HASH=$(git rev-parse --short HEAD)
+          BUILD_TIME=$(date '+%Y-%m-%d %H:%M:%S')
+          SHA256="${{ needs.build-ios.outputs.sha256 }}"
+          echo "version=$VERSION" >> $GITHUB_OUTPUT
+          echo "commit_hash=$COMMIT_HASH" >> $GITHUB_OUTPUT
+          echo "build_time=$BUILD_TIME" >> $GITHUB_OUTPUT
+          echo "sha256=$SHA256" >> $GITHUB_OUTPUT
+          echo "版本: v$VERSION"
+          echo "Commit: $COMMIT_HASH"
+          echo "SHA256: $SHA256"
+
+      # ---------- 检查 tag 是否已存在（防覆盖） ----------
+      - name: 检查 Release Tag 唯一性
+        run: |
+          TAG="v${{ steps.info.outputs.version }}"
+          if git rev-parse "$TAG" >/dev/null 2>&1; then
+            echo "::error::Tag $TAG 已存在，禁止覆盖已有 Release，终止流水线"
+            exit 1
+          fi
+          echo "Tag $TAG 不存在，可以创建"
+
+      # ---------- 更新 README 日志 ----------
+      - name: 更新 README 更新日志
+        run: |
+          VERSION="${{ steps.info.outputs.version }}"
+          COMMIT="${{ steps.info.outputs.commit_hash }}"
+          BUILD_TIME="${{ steps.info.outputs.build_time }}"
+          SHA256="${{ steps.info.outputs.sha256 }}"
+          bash scripts/update_readme.sh "$VERSION" "$COMMIT" "$BUILD_TIME" "$SHA256" "生产构建发布"
+          git add README.md
+          if git diff --cached --quiet; then
+            echo "README 无变更"
+          else
+            git commit -m "docs: 自动追加 v${VERSION} 更新日志"
+            git push origin main
+            echo "README 更新日志已提交"
+          fi
+
+      # ---------- 创建 Draft Release ----------
+      - name: 创建 Draft Release 并上传制品
         uses: softprops/action-gh-release@v2
         with:
-          tag_name: v${{ steps.version.outputs.version }}
-          name: 未来浏览器 v${{ steps.version.outputs.version }}
+          tag_name: v${{ steps.info.outputs.version }}
+          name: 未来浏览器 v${{ steps.info.outputs.version }}
+          draft: true
           body: |
-            ## 未来浏览器 v${{ steps.version.outputs.version }}
+            ## 未来浏览器 v${{ steps.info.outputs.version }}
 
-            自动构建发布。请查看仓库 README.md 获取详细更新日志。
+            > 本 Release 为草稿状态，人工审核后请手动点击「发布」。
 
-            **安装方式**：下载下方 IPA 文件后，用全能签 / TrollStore / Sideloadly 等工具签名安装。
-          files: ${{ env.APP_NAME }}.ipa
+            ### 构建信息
+            | 项目 | 内容 |
+            |------|------|
+            | 版本 | v${{ steps.info.outputs.version }} |
+            | Git Commit | `${{ steps.info.outputs.commit_hash }}` |
+            | 构建时间 | ${{ steps.info.outputs.build_time }} |
+            | IPA SHA256 | `${{ steps.info.outputs.sha256 }}` |
+            | 签名模式 | 未签名（ad-hoc） |
+            | 最低系统 | iOS 15.0+ |
+
+            ### 安装方式
+            下载下方 IPA 文件后，使用**全能签** / TrollStore / Sideloadly 等工具进行本地重签名安装。
+
+            ### 制品校验
+            ```bash
+            shasum -a 256 NewWeb.ipa
+            ```
+            校验值应与上方 SHA256 一致。
+
+            ### 更新日志
+            请查看仓库 [README.md](https://github.com/${{ github.repository }}/blob/main/README.md) 获取完整更新历史。
+          files: |
+            NewWeb.ipa
+            NewWeb-metadata.json
           fail_on_unmatched_files: true
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: 构建完成摘要
+        run: |
+          echo "========== 生产构建完成 =========="
+          echo "版本: v${{ steps.info.outputs.version }}"
+          echo "Commit: ${{ steps.info.outputs.commit_hash }}"
+          echo "SHA256: ${{ steps.info.outputs.sha256 }}"
+          echo "Draft Release 已创建，等待人工审核发布"
