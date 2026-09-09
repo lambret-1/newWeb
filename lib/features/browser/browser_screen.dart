@@ -1358,6 +1358,9 @@ class _BrowserScreenState extends State<BrowserScreen> with WidgetsBindingObserv
                   onEdgeBack: () => _currentWebView()?.goBack(),
                   onEdgeForward: () => _currentWebView()?.goForward(),
                   isAtTop: () async => _currentWebView()?.isAtTop() ?? true,
+                  onRefresh: () async {
+                    await _currentWebView()?.reload();
+                  },
                   onPullToFocus: _pullToFocusAddressBar,
                   onTapPage: _unfocusAddress,
                   child: IndexedStack(
