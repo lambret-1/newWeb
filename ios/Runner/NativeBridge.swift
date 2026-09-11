@@ -112,6 +112,15 @@ public class NativeBridgePlugin: NSObject, FlutterPlugin, QLPreviewControllerDat
       URLCache.shared.removeAllCachedResponses()
       clearCachesDirectory()
       result(true)
+    case "translatePage":
+      translatePage(
+        text: args["text"] as? String ?? "",
+        sourceLanguage: args["sourceLanguage"] as? String,
+        targetLanguage: args["targetLanguage"] as? String ?? "zh-Hans",
+        result: result
+      )
+    case "isTranslationAvailable":
+      result(TranslationManager.shared.isAvailable())
     default:
       result(FlutterMethodNotImplemented)
     }
@@ -675,6 +684,47 @@ public class NativeBridgePlugin: NSObject, FlutterPlugin, QLPreviewControllerDat
       return file.path
     } catch {
       return nil
+    }
+  }
+
+  // MARK: - 原生网页翻译（LTUITranslationViewController 私有 API）
+
+  private func translatePage(
+    text: String,
+    sourceLanguage: String?,
+    targetLanguage: String,
+    result: @escaping FlutterResult
+  ) {
+    guard !text.isEmpty else {
+      result(FlutterError(code: "EMPTY_TEXT", message: "待翻译文本为空", details: nil))
+      return
+    }
+    guard TranslationManager.shared.isAvailable() else {
+      result(FlutterError(code: "NOT_AVAILABLE", message: "当前系统不支持原生翻译", details: nil))
+      return
+    }
+
+    // 获取当前最顶层的视图控制器
+    guard let rootVC = UIApplication.shared.windows.first(where: { $0.isKeyWindow })?.rootViewController else {
+      result(FlutterError(code: "NO_ROOT_VC", message: "无法获取根视图控制器", details: nil))
+      return
+    }
+    var topVC = rootVC
+    while let presented = topVC.presentedViewController {
+      topVC = presented
+    }
+
+    TranslationManager.shared.presentTranslation(
+      text: text,
+      sourceLanguage: sourceLanguage,
+      targetLanguage: targetLanguage,
+      from: topVC
+    ) { success, error in
+      if success {
+        result(true)
+      } else {
+        result(FlutterError(code: "TRANSLATE_FAILED", message: error?.localizedDescription ?? "翻译失败", details: nil))
+      }
     }
   }
 }

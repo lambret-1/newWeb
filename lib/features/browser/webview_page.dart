@@ -316,6 +316,20 @@ class WebViewPageState extends State<WebViewPage> {
 
   // ---- 供 BrowserScreen 调用的导航操作 ----
 
+  /// 获取页面可见文本（用于原生翻译）。
+  Future<String> getPageText() async {
+    final c = _controller;
+    if (c == null) return '';
+    try {
+      final result = await c.runJavaScriptReturningResult(
+        'document.body ? document.body.innerText.substring(0, 50000) : ""'
+      );
+      return result?.toString() ?? '';
+    } catch (_) {
+      return '';
+    }
+  }
+
   Future<void> load(String input) async {
     final c = _controller;
     if (c == null) return;

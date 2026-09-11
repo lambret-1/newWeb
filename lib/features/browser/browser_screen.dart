@@ -821,6 +821,26 @@ class _BrowserScreenState extends State<BrowserScreen> with WidgetsBindingObserv
   Future<void> _translatePage() async {
     final webView = _currentWebView();
     if (webView == null) return;
+
+    // 优先尝试 iOS 原生翻译（LTUITranslationViewController 私有 API）
+    final nativeAvailable = await NativeBridge.isTranslationAvailable();
+    if (nativeAvailable) {
+      try {
+        // 获取页面可见文本
+        final text = await webView.getPageText();
+        if (text.isNotEmpty && text.length > 10) {
+          final success = await NativeBridge.translatePage(text: text);
+          if (success) {
+            DebugLogger.instance.log('使用 iOS 原生翻译界面');
+            return;
+          }
+        }
+      } catch (e) {
+        DebugLogger.instance.log('原生翻译失败，回退到在线翻译: $e');
+      }
+    }
+
+    // 回退到原来的在线翻译
     final result = await webView.translatePage();
     if (!mounted) return;
     switch (result) {

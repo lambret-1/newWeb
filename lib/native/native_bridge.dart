@@ -182,4 +182,30 @@ class NativeBridge {
     }
     return Map<String, dynamic>.from(value);
   }
+
+  /// 检查当前系统是否支持原生网页翻译（LTUITranslationViewController 私有 API）。
+  static Future<bool> isTranslationAvailable() async {
+    final value = await invoke('isTranslationAvailable', {});
+    return value == true;
+  }
+
+  /// 调起 iOS 原生网页翻译界面。
+  /// [text] 待翻译文本，[sourceLanguage] 源语言（可选，自动检测），[targetLanguage] 目标语言（默认简体中文）。
+  static Future<bool> translatePage({
+    required String text,
+    String? sourceLanguage,
+    String targetLanguage = 'zh-Hans',
+  }) async {
+    try {
+      final value = await invoke('translatePage', {
+        'text': text,
+        'sourceLanguage': sourceLanguage,
+        'targetLanguage': targetLanguage,
+      });
+      return value == true;
+    } catch (e) {
+      DebugLogger.instance.log('原生翻译调用失败: $e');
+      return false;
+    }
+  }
 }
