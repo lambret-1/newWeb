@@ -71,6 +71,12 @@ Flutter 3.47.x + webview_flutter 构建的 iOS 浏览器（工程名 NewWeb）�
 
 ## 更新日志
 
+### v1.2.3（最新）
+- **版本**：v1.2.3
+- **构建 Commit**：`2a579eb`
+- **构建时间**：2026-09-12 06:29:45
+- **IPA SHA256**：`f1bc3a2bf362bcb8421f17292efa1bd794f3688007f938a6ce5899ddf0eb2026`
+
 ### v1.2.2（最新）
 - **版本**：v1.2.2
 - **构建 Commit**：`7556665`
@@ -82,10 +88,4 @@ Flutter 3.47.x + webview_flutter 构建的 iOS 浏览器（工程名 NewWeb）�
 - **构建 Commit**：`851855f`
 - **构建时间**：2026-09-12 05:46:38
 - **IPA SHA256**：`c4b5e3888c0efc00781be1ddf75d6cdfe9009905e09e3d1221a60af3eea3ddea`
-
-### v1.1.9（最新）
-- **版本**：v1.1.9
-- **构建 Commit**：`09a8a11`
-- **构建时间**：2026-09-11 01:21:20
-- **IPA SHA256**：`50081adc4dc8f5dfed0e781337c929f4be4aaab0fe31b447ad94c53c72c86be5`
 
