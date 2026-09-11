@@ -2,57 +2,96 @@ import UIKit
 import NaturalLanguage
 
 /// 原生网页翻译管理器
-/// 通过 Runtime 调用私有框架 TranslationUIServices.framework 的 LTUITranslationViewController
-/// 该 API 与 Safari 内部网页翻译机制一致，仅适用于不上架 App Store 的侧载应用
+/// 通过 Runtime 调用私有框架 TranslationUIServices.framework
+/// 仅适用于不上架 App Store 的侧载应用
 @objc public class TranslationManager: NSObject {
 
     public static let shared = TranslationManager()
 
     /// 翻译视图控制器类（动态获取）
-    private var translationVCClass: UIViewController.Type?
+    private var translationVCClass: AnyClass?
 
     /// 翻译视图控制器实例
     private var translationVC: UIViewController?
 
-    /// 运行时属性列表（用于调试和探索）
+    /// 运行时属性列表
     private var propertyNames: [String] = []
+
+    /// 运行时方法列表
+    private var methodNames: [String] = []
+
+    /// 框架是否已加载
+    private var frameworkLoaded = false
 
     private override init() {
         super.init()
+        loadFramework()
         loadPrivateClass()
     }
 
-    /// 动态加载私有类 LTUITranslationViewController
+    /// 手动加载私有框架
+    private func loadFramework() {
+        let frameworkPaths = [
+            "/System/Library/PrivateFrameworks/TranslationUIServices.framework/TranslationUIServices",
+            "/System/Library/PrivateFrameworks/Translation.framework/Translation",
+            "/System/Library/Frameworks/TranslationUI.framework/TranslationUI"
+        ]
+        for path in frameworkPaths {
+            if let handle = dlopen(path, RTLD_NOW) {
+                frameworkLoaded = true
+                print("[翻译管理器] 成功加载框架: \(path)")
+                break
+            } else {
+                let error = String(cString: dlerror())
+                print("[翻译管理器] 加载框架失败 \(path): \(error)")
+            }
+        }
+        if !frameworkLoaded {
+            print("[翻译管理器] 所有框架路径加载失败")
+        }
+    }
+
+    /// 动态加载私有类
     private func loadPrivateClass() {
-        // 尝试多种类名变体
         let classNames = [
             "LTUITranslationViewController",
             "LTTranslationViewController",
-            "TranslationUIServices.LTUITranslationViewController"
+            "TranslationViewController",
+            "LTUINavigationController",
+            "LTUITranslationRootViewController"
         ]
         for name in classNames {
-            if let cls = NSClassFromString(name) as? UIViewController.Type {
+            if let cls = NSClassFromString(name) {
                 translationVCClass = cls
                 print("[翻译管理器] 成功加载私有类: \(name)")
-                exploreProperties(cls: cls)
+                exploreClass(cls: cls)
                 return
             }
         }
-        print("[翻译管理器] 警告: 无法加载 LTUITranslationViewController，当前系统可能不支持")
+        print("[翻译管理器] 警告: 无法加载任何翻译视图控制器类")
     }
 
     /// 运行时探索类的所有属性和方法
-    private func exploreProperties(cls: AnyClass) {
-        var count: UInt32 = 0
-        guard let properties = class_copyPropertyList(cls, &count) else { return }
-        for i in 0..<Int(count) {
-            let property = properties[i]
-            if let name = String(utf8String: property_getName(property)) {
-                propertyNames.append(name)
+    private func exploreClass(cls: AnyClass) {
+        var propCount: UInt32 = 0
+        if let properties = class_copyPropertyList(cls, &propCount) {
+            for i in 0..<Int(propCount) {
+                if let name = String(utf8String: property_getName(properties[i])) {
+                    propertyNames.append(name)
+                }
             }
+            free(properties)
         }
-        free(properties)
-        print("[翻译管理器] 发现 \(propertyNames.count) 个属性: \(propertyNames)")
+        var methodCount: UInt32 = 0
+        if let methods = class_copyMethodList(cls, &methodCount) {
+            for i in 0..<Int(methodCount) {
+                let sel = method_getName(methods[i])
+                methodNames.append(NSStringFromSelector(sel))
+            }
+            free(methods)
+        }
+        print("[翻译管理器] 属性(\(propertyNames.count)): \(propertyNames)")
+        print("[翻译管理器] 方法(\(methodNames.count)): \(methodNames.prefix(30))")
     }
 
     /// 检查当前系统是否支持原生翻译
@@ -60,18 +99,18 @@ import NaturalLanguage
         return translationVCClass != nil
     }
 
-    /// 获取所有可设置的属性名（用于调试）
-    public func availableProperties() -> [String] {
-        return propertyNames
+    /// 获取调试信息
+    public func debugInfo() -> [String: Any] {
+        return [
+            "frameworkLoaded": frameworkLoaded,
+            "classFound": translationVCClass != nil,
+            "className": NSStringFromClass(translationVCClass ?? NSNull.self),
+            "properties": propertyNames,
+            "methods": Array(methodNames.prefix(50))
+        ]
     }
 
     /// 呈现原生翻译界面
-    /// - Parameters:
-    ///   - text: 待翻译的文本内容
-    ///   - sourceLanguage: 源语言（可选，自动检测）
-    ///   - targetLanguage: 目标语言（默认简体中文）
-    ///   - viewController: 从哪个视图控制器呈现
-    ///   - completion: 完成回调
     public func presentTranslation(
         text: String,
         sourceLanguage: String? = nil,
@@ -80,44 +119,77 @@ import NaturalLanguage
         completion: ((Bool, Error?) -> Void)? = nil
     ) {
         guard let cls = translationVCClass else {
-            completion?(false, NSError(domain: "TranslationManager", code: -1, userInfo: [NSLocalizedDescriptionKey: "当前系统不支持原生翻译"]))
+            let error = NSError(domain: "TranslationManager", code: -1,
+                userInfo: [NSLocalizedDescriptionKey: "当前系统不支持原生翻译（类未找到）"])
+            completion?(false, error)
             return
         }
 
-        // 创建翻译视图控制器实例
-        let vc = cls.init()
-        translationVC = vc
+        print("[翻译管理器] 开始创建翻译视图控制器，类: \(NSStringFromClass(cls))")
+
+        // 尝试多种初始化方式
+        var vc: UIViewController?
+
+        // 方式1: 普通 init
+        if let initCls = cls as? UIViewController.Type {
+            vc = initCls.init()
+            print("[翻译管理器] 使用 init() 创建成功")
+        }
+
+        // 方式2: 通过 initWithCoder
+        if vc == nil {
+            if let obj = cls.alloc() as? UIViewController {
+                vc = obj
+                print("[翻译管理器] 使用 alloc 创建成功")
+            }
+        }
+
+        guard let translationVC = vc else {
+            let error = NSError(domain: "TranslationManager", code: -2,
+                userInfo: [NSLocalizedDescriptionKey: "无法创建翻译视图控制器实例"])
+            completion?(false, error)
+            return
+        }
+
+        self.translationVC = translationVC
 
         // 自动检测源语言
         let detectedLanguage = sourceLanguage ?? detectLanguage(text: text)
-        print("[翻译管理器] 源语言: \(detectedLanguage ?? "自动"), 目标语言: \(targetLanguage), 文本长度: \(text.count)")
+        print("[翻译管理器] 源语言: \(detectedLanguage ?? "自动"), 目标: \(targetLanguage), 文本长度: \(text.count)")
 
-        // 通过 KVC 设置已知属性（尝试多种可能的属性名）
-        setValueIfExists(text, forKeys: ["sourceText", "text", "content", "inputText", "sourceContent"], in: vc)
-        setValueIfExists(targetLanguage, forKeys: ["targetLanguage", "targetLocale", "toLanguage", "destinationLanguage"], in: vc)
+        // 通过 KVC 设置所有可能的属性
+        let textKeys = ["sourceText", "text", "content", "inputText", "sourceContent",
+                        "textToTranslate", "originalText", "string"]
+        let targetKeys = ["targetLanguage", "targetLocale", "toLanguage",
+                          "destinationLanguage", "targetLanguageCode"]
+        let sourceKeys = ["sourceLanguage", "sourceLocale", "fromLanguage",
+                          "originLanguage", "sourceLanguageCode"]
+
+        setValueIfExists(text, forKeys: textKeys, in: translationVC)
+        setValueIfExists(targetLanguage, forKeys: targetKeys, in: translationVC)
         if let src = detectedLanguage {
-            setValueIfExists(src, forKeys: ["sourceLanguage", "sourceLocale", "fromLanguage", "originLanguage"], in: vc)
+            setValueIfExists(src, forKeys: sourceKeys, in: translationVC)
         }
 
-        // 尝试设置来源元信息（LTUISourceMeta）
-        if let sourceMetaClass = NSClassFromString("LTUISourceMeta") as? NSObject.Type {
-            let meta = sourceMetaClass.init()
-            setValueIfExists("webpage", forKeys: ["sourceType", "type", "origin"], in: meta)
-            vc.setValue(meta, forKey: "sourceMeta")
-        }
+        // 尝试调用常见的配置方法
+        performIfResponds(translationVC, selector: "setSourceText:", object: text as NSString)
+        performIfResponds(translationVC, selector: "setText:", object: text as NSString)
+        performIfResponds(translationVC, selector: "setTargetLanguage:", object: targetLanguage as NSString)
 
         // 以模态方式呈现
-        vc.modalPresentationStyle = .pageSheet
+        translationVC.modalPresentationStyle = .pageSheet
         if #available(iOS 15.0, *) {
-            if let sheet = vc.sheetPresentationController {
+            if let sheet = translationVC.sheetPresentationController {
                 sheet.detents = [.medium(), .large()]
                 sheet.prefersGrabberVisible = true
             }
         }
 
-        viewController.present(vc, animated: true) {
-            print("[翻译管理器] 翻译界面已呈现")
-            completion?(true, nil)
+        DispatchQueue.main.async {
+            viewController.present(translationVC, animated: true) {
+                print("[翻译管理器] 翻译界面已呈现")
+                completion?(true, nil)
+            }
         }
     }
 
@@ -129,19 +201,27 @@ import NaturalLanguage
         return language.rawValue
     }
 
-    /// 尝试设置多个可能的属性名，找到第一个存在的就设置
+    /// 尝试设置多个可能的属性名
     private func setValueIfExists(_ value: Any, forKeys keys: [String], in object: NSObject) {
         for key in keys {
-            if object.responds(to: Selector(key)) || propertyNames.contains(key) {
+            if propertyNames.contains(key) {
                 do {
-                    try objc_setAssociatedObject(object, key, value, .OBJC_ASSOCIATION_RETAIN_NONATOMIC)
                     object.setValue(value, forKey: key)
                     print("[翻译管理器] 成功设置属性: \(key)")
                     return
                 } catch {
-                    continue
+                    print("[翻译管理器] 设置属性失败 \(key): \(error)")
                 }
             }
+        }
+    }
+
+    /// 尝试调用方法
+    private func performIfResponds(_ object: NSObject, selector: String, object arg: Any?) {
+        let sel = Selector(selector)
+        if object.responds(to: sel) {
+            object.perform(sel, with: arg)
+            print("[翻译管理器] 成功调用方法: \(selector)")
         }
     }
 

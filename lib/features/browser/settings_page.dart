@@ -19,7 +19,10 @@ import 'debug_log_page.dart';
 
 /// 设置页：搜索引擎 / 广告拦截（含豁免站点）/ 无痕 / 网页翻译 / 缓存 / DNS / 关于。
 class SettingsPage extends StatefulWidget {
-  const SettingsPage({super.key});
+  const SettingsPage({super.key, this.onTranslate});
+
+  /// 一键翻译回调（在设置页内点击后触发当前页面翻译）
+  final VoidCallback? onTranslate;
 
   @override
   State<SettingsPage> createState() => _SettingsPageState();
@@ -617,6 +620,15 @@ class _SettingsPageState extends State<SettingsPage> {
           _group(
             title: '网页翻译',
             children: [
+              _tile(
+                icon: Icons.bolt,
+                title: '一键翻译',
+                trailing: const Icon(Icons.chevron_right, size: 18, color: Color(0xFFC7C7CC)),
+                onTap: () {
+                  widget.onTranslate?.call();
+                  Navigator.of(context).pop();
+                },
+              ),
               _tile(
                 icon: Icons.translate,
                 title: '翻译模式',

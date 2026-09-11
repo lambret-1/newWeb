@@ -808,7 +808,7 @@ class _BrowserScreenState extends State<BrowserScreen> with WidgetsBindingObserv
   void _openSettings(BuildContext sheetContext) {
     Navigator.of(sheetContext).pop();
     Navigator.of(context)
-        .push<void>(MaterialPageRoute(builder: (_) => const SettingsPage()))
+        .push<void>(MaterialPageRoute(builder: (_) => SettingsPage(onTranslate: _translatePage)))
         .then((_) => _loadIncognito());
   }
 
