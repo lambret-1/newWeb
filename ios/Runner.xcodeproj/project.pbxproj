@@ -12,6 +12,7 @@
 		3B3967161E833CAA004F5970 /* AppFrameworkInfo.plist in Resources */ = {isa = PBXBuildFile; fileRef = 3B3967151E833CAA004F5970 /* AppFrameworkInfo.plist */; };
 		74858FAF1ED2DC5600515810 /* AppDelegate.swift in Sources */ = {isa = PBXBuildFile; fileRef = 74858FAE1ED2DC5600515810 /* AppDelegate.swift */; };
 		0E6F557D8B5A4F1B90FB6557 /* NativeBridge.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5CA96A01471141D39A990638 /* NativeBridge.swift */; };
+		55D86A01811446F09301B964 /* TranslationManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6E5124D29BC34B9486F494DF /* TranslationManager.swift */; };
 		628F9D0BF9E2446FA72B2E31 /* ContentBlockerManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = 95A20050E74C4EDC9011BC37 /* ContentBlockerManager.swift */; };
 		C079C1B2513D46C5B85C45C7 /* WebViewDelegateWrapper.swift in Sources */ = {isa = PBXBuildFile; fileRef = F6091ACC8A3E41DC85016734 /* WebViewDelegateWrapper.swift */; };
 		B7DD9FD6F49849B5823D3E16 /* DownloadManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = 48205ABC2F6D4B7681508B1C /* DownloadManager.swift */; };
@@ -54,6 +55,7 @@
 		74858FAD1ED2DC5600515810 /* Runner-Bridging-Header.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = "Runner-Bridging-Header.h"; sourceTree = "<group>"; };
 		74858FAE1ED2DC5600515810 /* AppDelegate.swift */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.swift; path = AppDelegate.swift; sourceTree = "<group>"; };
 		5CA96A01471141D39A990638 /* NativeBridge.swift */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.swift; path = NativeBridge.swift; sourceTree = "<group>"; };
+		6E5124D29BC34B9486F494DF /* TranslationManager.swift */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.swift; path = TranslationManager.swift; sourceTree = "<group>"; };
 		95A20050E74C4EDC9011BC37 /* ContentBlockerManager.swift */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.swift; path = ContentBlockerManager.swift; sourceTree = "<group>"; };
 		F6091ACC8A3E41DC85016734 /* WebViewDelegateWrapper.swift */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.swift; path = WebViewDelegateWrapper.swift; sourceTree = "<group>"; };
 		48205ABC2F6D4B7681508B1C /* DownloadManager.swift */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.swift; path = DownloadManager.swift; sourceTree = "<group>"; };
@@ -131,6 +133,7 @@
 				1498D2331E8E89220040F4C2 /* GeneratedPluginRegistrant.m */,
 				74858FAE1ED2DC5600515810 /* AppDelegate.swift */,
 				5CA96A01471141D39A990638 /* NativeBridge.swift */,
+				6E5124D29BC34B9486F494DF /* TranslationManager.swift */,
 				95A20050E74C4EDC9011BC37 /* ContentBlockerManager.swift */,
 				F6091ACC8A3E41DC85016734 /* WebViewDelegateWrapper.swift */,
 				48205ABC2F6D4B7681508B1C /* DownloadManager.swift */,
@@ -295,6 +298,7 @@
 			files = (
 				74858FAF1ED2DC5600515810 /* AppDelegate.swift in Sources */,
 				0E6F557D8B5A4F1B90FB6557 /* NativeBridge.swift in Sources */,
+				55D86A01811446F09301B964 /* TranslationManager.swift in Sources */,
 				628F9D0BF9E2446FA72B2E31 /* ContentBlockerManager.swift in Sources */,
 				C079C1B2513D46C5B85C45C7 /* WebViewDelegateWrapper.swift in Sources */,
 				B7DD9FD6F49849B5823D3E16 /* DownloadManager.swift in Sources */,
