@@ -611,6 +611,11 @@ class _BrowserScreenState extends State<BrowserScreen> with WidgetsBindingObserv
               onTap: () => _addBookmark(sheetContext)),
           MenuItem(key: 'translate', icon: Icons.translate, label: '翻译此页', section: '网页操作',
               onTap: () => _translatePageFromSheet(sheetContext)),
+          MenuItem(key: 'quick_translate', icon: Icons.bolt, label: '一键翻译', section: '网页操作',
+              onTap: () {
+                Navigator.of(sheetContext).pop();
+                _translatePage();
+              }),
           MenuItem(key: 'reader', icon: Icons.menu_book_outlined, label: '阅读模式', section: '网页操作',
               onTap: () => _openReader(sheetContext)),
           MenuItem(key: 'offline_save', icon: Icons.download_outlined, label: '保存离线页面', section: '网页操作',

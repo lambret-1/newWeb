@@ -201,12 +201,12 @@ import NaturalLanguage
         return language.rawValue
     }
 
-    /// 尝试设置多个可能的属性名
+    /// 尝试设置多个可能的属性名（仅设置已知存在的属性，避免崩溃）
     private func setValueIfExists(_ value: Any, forKeys keys: [String], in object: NSObject) {
         for key in keys {
             if propertyNames.contains(key) {
                 do {
-                    object.setValue(value, forKey: key)
+                    try object.setValue(value, forKey: key)
                     print("[翻译管理器] 成功设置属性: \(key)")
                     return
                 } catch {
@@ -216,11 +216,11 @@ import NaturalLanguage
         }
     }
 
-    /// 尝试调用方法
+    /// 尝试调用方法（仅调用已知响应的方法）
     private func performIfResponds(_ object: NSObject, selector: String, object arg: Any?) {
         let sel = Selector(selector)
         if object.responds(to: sel) {
-            object.perform(sel, with: arg)
+            _ = object.perform(sel, with: arg)
             print("[翻译管理器] 成功调用方法: \(selector)")
         }
     }

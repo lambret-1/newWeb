@@ -621,15 +621,6 @@ class _SettingsPageState extends State<SettingsPage> {
             title: '网页翻译',
             children: [
               _tile(
-                icon: Icons.bolt,
-                title: '一键翻译',
-                trailing: const Icon(Icons.chevron_right, size: 18, color: Color(0xFFC7C7CC)),
-                onTap: () {
-                  widget.onTranslate?.call();
-                  Navigator.of(context).pop();
-                },
-              ),
-              _tile(
                 icon: Icons.translate,
                 title: '翻译模式',
                 trailing: Text(
