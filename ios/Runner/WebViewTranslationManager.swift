@@ -185,9 +185,12 @@ import WebKit
 
     /// 获取调试信息
     public func debugInfo(for webView: WKWebView) -> [String: Any] {
-        var info: [String: Any] = [
-            "iOS15+": #available(iOS 15.0, *)
-        ]
+        var info: [String: Any] = [:]
+        if #available(iOS 15.0, *) {
+            info["iOS15+"] = true
+        } else {
+            info["iOS15+"] = false
+        }
         if let page = safeValue(forKey: "_page", object: webView) {
             info["pageClass"] = NSStringFromClass(type(of: page as AnyObject))
             if let translation = safeValue(forKey: "_translation", object: page as AnyObject) {
