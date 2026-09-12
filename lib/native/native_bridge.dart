@@ -208,4 +208,16 @@ class NativeBridge {
       return false;
     }
   }
+
+  /// 调用 WKWebView 私有翻译 API（Safari 同源整页翻译）。
+  /// [targetLocale] 目标语言（默认 zh-Hans）。
+  static Future<bool> translateWebView({String targetLocale = 'zh-Hans'}) async {
+    try {
+      final value = await invoke('translateWebView', {'targetLocale': targetLocale});
+      return value == true;
+    } catch (e) {
+      DebugLogger.instance.log('WKWebView 私有翻译调用失败: $e');
+      return false;
+    }
+  }
 }

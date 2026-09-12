@@ -827,7 +827,19 @@ class _BrowserScreenState extends State<BrowserScreen> with WidgetsBindingObserv
     final webView = _currentWebView();
     if (webView == null) return;
 
-    // 原生翻译暂不可用（私有API兼容性问题），直接使用在线翻译
+    // 优先尝试 WKWebView 私有翻译 API（Safari 同源整页翻译）
+    try {
+      final success = await NativeBridge.translateWebView();
+      if (success) {
+        DebugLogger.instance.log('使用 WKWebView 私有翻译 API');
+        _showMessage('正在翻译当前页面…');
+        return;
+      }
+    } catch (e) {
+      DebugLogger.instance.log('WKWebView 私有翻译失败，回退在线翻译: $e');
+    }
+
+    // 回退到在线翻译
     final result = await webView.translatePage();
     if (!mounted) return;
     switch (result) {

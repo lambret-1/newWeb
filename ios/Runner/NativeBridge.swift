@@ -121,6 +121,11 @@ public class NativeBridgePlugin: NSObject, FlutterPlugin, QLPreviewControllerDat
       )
     case "isTranslationAvailable":
       result(TranslationManager.shared.isAvailable())
+    case "translateWebView":
+      translateWebView(
+        targetLocale: args["targetLocale"] as? String ?? "zh-Hans",
+        result: result
+      )
     default:
       result(FlutterMethodNotImplemented)
     }
@@ -724,6 +729,43 @@ public class NativeBridgePlugin: NSObject, FlutterPlugin, QLPreviewControllerDat
         result(true)
       } else {
         result(FlutterError(code: "TRANSLATE_FAILED", message: error?.localizedDescription ?? "翻译失败", details: nil))
+      }
+    }
+  }
+
+  // MARK: - WKWebView 私有翻译 API（Safari 同源整页翻译）
+
+  private func translateWebView(
+    targetLocale: String,
+    result: @escaping FlutterResult
+  ) {
+    // 找到当前可见的 WKWebView
+    guard let window = UIApplication.shared.keyWindow,
+          let rootVC = window.rootViewController else {
+      result(FlutterError(code: "NO_WEBVIEW", message: "找不到根视图控制器", details: nil))
+      return
+    }
+
+    var logs: [String] = []
+    guard let webView = findWebViewInVC(rootVC, logs: &logs) else {
+      result(FlutterError(code: "NO_WEBVIEW", message: "找不到 WKWebView", details: logs.joined(separator: "\n")))
+      return
+    }
+
+    print("[NativeBridge] 找到 WKWebView，开始私有翻译")
+
+    // 检查是否支持
+    guard WebViewTranslationManager.shared.isAvailable(in: webView) else {
+      result(FlutterError(code: "NOT_AVAILABLE", message: "当前系统不支持 WKWebView 私有翻译", details: nil))
+      return
+    }
+
+    // 请求翻译
+    WebViewTranslationManager.shared.requestTranslation(in: webView, targetLocale: targetLocale) { success, error in
+      if success {
+        result(true)
+      } else {
+        result(FlutterError(code: "TRANSLATE_FAILED", message: error ?? "翻译失败", details: nil))
       }
     }
   }
